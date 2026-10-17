@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Computed,
     Date,
     DateTime,
@@ -34,10 +35,13 @@ CATEGORIES = [
     "Otros",
 ]
 
+KINDS = ("document", "note", "task", "event")
+
 
 class Item(Base):
-    """Cualquier cosa guardada en el segundo cerebro. Hoy solo documentos;
-    notas, eventos y tareas reutilizarán esta tabla con otro `kind`."""
+    """Cualquier cosa guardada en el segundo cerebro: documento, nota, tarea o
+    evento. Lo común (título, etiquetas, proyecto, búsqueda) vive aquí y lo
+    específico de cada tipo en su propia tabla."""
 
     __tablename__ = "items"
 
@@ -48,12 +52,16 @@ class Item(Base):
     category: Mapped[str | None] = mapped_column(String(40), index=True)
     doc_type: Mapped[str | None] = mapped_column(String(80))
     doc_date: Mapped[date | None] = mapped_column(Date)
-    expires_on: Mapped[date | None] = mapped_column(Date)
+    expires_on: Mapped[date | None] = mapped_column(Date, index=True)
     year: Mapped[int | None] = mapped_column(Integer, index=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     entities: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     error: Mapped[str | None] = mapped_column(Text)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -62,6 +70,16 @@ class Item(Base):
     document: Mapped["Document | None"] = relationship(
         back_populates="item", uselist=False, cascade="all, delete-orphan"
     )
+    note: Mapped["Note | None"] = relationship(  # noqa: F821
+        back_populates="item", uselist=False, cascade="all, delete-orphan"
+    )
+    task: Mapped["Task | None"] = relationship(  # noqa: F821
+        back_populates="item", uselist=False, cascade="all, delete-orphan", foreign_keys="Task.item_id"
+    )
+    event: Mapped["Event | None"] = relationship(  # noqa: F821
+        back_populates="item", uselist=False, cascade="all, delete-orphan"
+    )
+    project: Mapped["Project | None"] = relationship()  # noqa: F821
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="item", cascade="all, delete-orphan", order_by="Chunk.ord"
     )
@@ -105,3 +123,16 @@ class Chunk(Base):
     )
 
     item: Mapped[Item] = relationship(back_populates="chunks")
+
+
+class ItemLink(Base):
+    """Enlace [[así]] desde una nota a otro elemento. Permite ver las referencias inversas."""
+
+    __tablename__ = "item_links"
+
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
+    )
+    target_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True, index=True
+    )

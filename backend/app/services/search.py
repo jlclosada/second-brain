@@ -44,8 +44,11 @@ def parse_query(q: str) -> ParsedQuery:
     return ParsedQuery(text=" ".join(rest.split()), years=years)
 
 
-def _filters(years: list[int], category: str | None) -> tuple[str, dict]:
+def _filters(years: list[int], category: str | None, kind: str | None = None) -> tuple[str, dict]:
     clauses, params = ["i.status = 'ready'"], {}
+    if kind:
+        clauses.append("i.kind = :kind")
+        params["kind"] = kind
     if years:
         clauses.append("i.year = ANY(:years)")
         params["years"] = years
@@ -112,18 +115,20 @@ def _snippets(db: Session, hits: list[Hit], query_text: str) -> None:
         h.snippet = by_id.get(h.chunk_id, "")
 
 
-def search(db: Session, q: str, category: str | None = None, limit: int = 20) -> tuple[ParsedQuery, list[Hit]]:
+def search(db: Session, q: str, category: str | None = None, limit: int = 20,
+           kind: str | None = None) -> tuple[ParsedQuery, list[Hit]]:
     parsed = parse_query(q)
-    hits = _search(db, parsed, parsed.years, category, limit)
+    hits = _search(db, parsed, parsed.years, category, limit, kind)
     if not hits and parsed.years and parsed.text:
         # Si nada tiene ese año, mejor mostrar lo más parecido que nada.
-        hits = _search(db, parsed, [], category, limit)
+        hits = _search(db, parsed, [], category, limit, kind)
     _snippets(db, hits, parsed.text)
     return parsed, hits
 
 
-def _search(db: Session, parsed: ParsedQuery, years: list[int], category: str | None, limit: int) -> list[Hit]:
-    where, params = _filters(years, category)
+def _search(db: Session, parsed: ParsedQuery, years: list[int], category: str | None, limit: int,
+            kind: str | None = None) -> list[Hit]:
+    where, params = _filters(years, category, kind)
 
     if not parsed.text:
         # Solo filtros ("2024"): lo más reciente primero.

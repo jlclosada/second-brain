@@ -29,8 +29,10 @@ class ItemOut(BaseModel):
     tags: list[str]
     status: str
     error: str | None
+    pinned: bool = False
+    project_id: uuid.UUID | None = None
     created_at: datetime
-    document: DocumentOut | None
+    document: DocumentOut | None = None
 
 
 class ItemDetail(ItemOut):
@@ -52,6 +54,8 @@ class ItemUpdate(BaseModel):
     year: int | None = None
     tags: list[str] | None = None
     summary: str | None = None
+    pinned: bool | None = None
+    project_id: uuid.UUID | None = None
 
 
 class UploadResult(BaseModel):
@@ -71,27 +75,6 @@ class SearchResponse(BaseModel):
     text: str
     years: list[int]
     hits: list[SearchHit]
-
-
-class AskRequest(BaseModel):
-    question: str
-
-
-class AskSource(BaseModel):
-    n: int
-    item_id: str
-    title: str
-    category: str | None
-    year: int | None
-
-
-class AskResponse(BaseModel):
-    answer: str
-    sources: list[AskSource]
-
-
-class LoginRequest(BaseModel):
-    password: str
 
 
 class FacetCount(BaseModel):

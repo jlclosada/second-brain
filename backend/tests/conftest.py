@@ -12,26 +12,33 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
-from app.db import SessionLocal, engine, init_db  # noqa: E402
+from app.db import SessionLocal, engine, migrate  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services.pipeline import run_once  # noqa: E402
+from app.services import calendar, indexing, pipeline  # noqa: E402,F401  registran trabajos
+from app.services.jobs import run_once  # noqa: E402
+
+CSRF = {"X-Requested-With": "segundo-cerebro"}
+TABLES = (
+    "items, jobs, reminders, notifications, sessions, login_attempts, audit_log, conversations, projects, "
+    "account, push_subscriptions, calendars"
+)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    init_db()
+    migrate()
 
 
 @pytest.fixture(autouse=True)
 def _clean():
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE items CASCADE"))
+        conn.execute(text(f"TRUNCATE {TABLES} CASCADE"))
     yield
 
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
+    with TestClient(app, headers=CSRF) as c:
         assert c.post("/api/auth/login", json={"password": "secreto"}).status_code == 200
         yield c
 

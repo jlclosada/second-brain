@@ -7,13 +7,14 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.auth import require_user
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import CATEGORIES, Document, Item
 from app.schemas import FacetCount, ItemDetail, ItemList, ItemOut, ItemUpdate, Stats, UploadResult
+from app.security import require_user
 from app.services import storage
-from app.services.pipeline import reindex
+from app.services.indexing import schedule_index
+from app.services.pipeline import schedule_processing
 
 ACTIVE_CONTENT = ("html", "svg", "xml", "javascript")
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["documents"], dependencies=[Depends(requ
 
 def _get_item(db: Session, item_id: uuid.UUID) -> Item:
     item = db.get(Item, item_id, options=[selectinload(Item.document)])
-    if item is None:
+    if item is None or item.kind != "document":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento no encontrado")
     return item
 
@@ -49,6 +50,8 @@ async def upload(
         path = storage.save_original(item.id, filename, data)
         item.document = Document(filename=filename, mime=mime, size=len(data), sha256=digest, path=str(path))
         db.add(item)
+        db.flush()
+        schedule_processing(db, item)
         db.commit()
         created.append(item)
     return UploadResult(created=[ItemOut.model_validate(i) for i in created], duplicates=duplicates)
@@ -102,7 +105,7 @@ def update_document(item_id: uuid.UUID, body: ItemUpdate, db: Session = Depends(
     for key, value in changes.items():
         setattr(item, key, value)
     if item.status == "ready":
-        reindex(db, item)  # la ficha cambia, así que también su fragmento de búsqueda
+        schedule_index(db, item.id)  # la ficha cambia, así que también su fragmento de búsqueda
     db.commit()
     return ItemOut.model_validate(item)
 
@@ -110,8 +113,7 @@ def update_document(item_id: uuid.UUID, body: ItemUpdate, db: Session = Depends(
 @router.post("/documents/{item_id}/reprocess", response_model=ItemOut)
 def reprocess(item_id: uuid.UUID, db: Session = Depends(get_db)):
     item = _get_item(db, item_id)
-    item.status = "pending"
-    item.error = None
+    schedule_processing(db, item)
     db.commit()
     return ItemOut.model_validate(item)
 

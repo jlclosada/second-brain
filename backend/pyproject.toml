@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = ["app/migrations/versions"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "B", "UP"]
+# Las expresiones regulares y SQL largos se leen mejor en una línea.
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

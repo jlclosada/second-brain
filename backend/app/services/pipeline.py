@@ -1,46 +1,20 @@
-"""Cadena de ingesta: extraer texto → clasificar → trocear → embeddings."""
+"""Ingesta de documentos: extraer texto → clasificar → trocear → embeddings."""
 
 import logging
+import uuid
 from datetime import date
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from app.models import Chunk, Item
-from app.services.chunking import split_text
+from app.models import Item
 from app.services.classify import classify
-from app.services.embeddings import embed
 from app.services.extract import extract_text
+from app.services.indexing import reindex
+from app.services.jobs import enqueue, handler, on_failure
 
 log = logging.getLogger(__name__)
-
-
-def card_text(item: Item) -> str:
-    """Ficha del documento: lo que más se busca, en un solo fragmento."""
-    parts = [
-        item.title,
-        f"Tipo: {item.doc_type}" if item.doc_type else "",
-        f"Categoría: {item.category}" if item.category else "",
-        f"Año: {item.year}" if item.year else "",
-        f"Vence: {item.expires_on.isoformat()}" if item.expires_on else "",
-        f"Etiquetas: {', '.join(item.tags)}" if item.tags else "",
-        " · ".join(e.get("name", "") for e in item.entities.get("list", [])) if item.entities else "",
-        item.summary or "",
-    ]
-    return "\n".join(p for p in parts if p)
-
-
-def reindex(session: Session, item: Item) -> None:
-    """Regenera fragmentos y embeddings a partir de la ficha y del texto."""
-    texts = [card_text(item)]
-    if item.document and item.document.text:
-        texts += split_text(item.document.text)
-    vectors = embed(texts)
-    item.chunks.clear()
-    session.flush()
-    for i, (content, vector) in enumerate(zip(texts, vectors)):
-        item.chunks.append(Chunk(ord=i, content=content, embedding=vector))
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -50,6 +24,12 @@ def _parse_date(value: str | None) -> date | None:
         return date.fromisoformat(value[:10])
     except ValueError:
         return None
+
+
+def schedule_processing(db: Session, item: Item) -> None:
+    item.status = "pending"
+    item.error = None
+    enqueue(db, "process_document", {"item_id": str(item.id)}, dedupe=True)
 
 
 def process_item(session: Session, item: Item) -> None:
@@ -78,41 +58,19 @@ def process_item(session: Session, item: Item) -> None:
     item.error = None
 
 
-def claim_next(session: Session) -> Item | None:
-    """Toma el siguiente documento pendiente. SKIP LOCKED permite varios workers."""
-    item = session.scalars(
-        select(Item)
-        .where(Item.status == "pending")
-        .order_by(Item.created_at)
-        .limit(1)
-        .with_for_update(skip_locked=True)
-    ).first()
-    if item:
-        item.status = "processing"
-        session.commit()
-    return item
-
-
-def run_once(session: Session) -> bool:
-    """Procesa un documento pendiente. Devuelve False si no había ninguno."""
-    item = claim_next(session)
+@handler("process_document")
+def _process_document(db: Session, payload: dict) -> None:
+    item = db.get(Item, uuid.UUID(payload["item_id"]))
     if item is None:
-        return False
-    try:
-        process_item(session, item)
-        session.commit()
-        log.info("Procesado: %s → %s / %s", item.id, item.category, item.title)
-    except Exception as exc:
-        session.rollback()
-        log.exception("Error procesando %s", item.id)
-        session.execute(
-            update(Item).where(Item.id == item.id).values(status="error", error=str(exc)[:2000])
-        )
-        session.commit()
-    return True
+        return
+    item.status = "processing"
+    db.commit()
+    process_item(db, item)
+    log.info("Procesado: %s → %s / %s", item.id, item.category, item.title)
 
 
-def reset_stuck(session: Session) -> None:
-    """Al arrancar, lo que quedó a medias vuelve a la cola."""
-    session.execute(update(Item).where(Item.status == "processing").values(status="pending"))
-    session.commit()
+@on_failure("process_document")
+def _process_failed(db: Session, payload: dict, exc: Exception) -> None:
+    db.execute(
+        update(Item).where(Item.id == uuid.UUID(payload["item_id"])).values(status="error", error=str(exc)[:2000])
+    )

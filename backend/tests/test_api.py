@@ -27,7 +27,7 @@ Consumo luz vivienda: 230 kWh. Total 64,20 euros."""
 
 
 def test_requires_login():
-    with TestClient(app) as anon:
+    with TestClient(app, headers={"X-Requested-With": "segundo-cerebro"}) as anon:
         assert anon.get("/api/documents").status_code == 401
         assert anon.post("/api/auth/login", json={"password": "mal"}).status_code == 401
 
@@ -94,6 +94,7 @@ def test_edit_reindexes_card(client, upload, process_all):
     r = client.patch(f"/api/documents/{item['id']}", json={"category": "Compras", "tags": ["Electrodomésticos"]})
     assert r.status_code == 200
     assert r.json()["tags"] == ["electrodomésticos"]
+    process_all()  # el reindexado va por la cola
     hits = client.get("/api/search", params={"q": "electrodomésticos"}).json()["hits"]
     assert hits and hits[0]["item"]["id"] == item["id"]
     assert client.patch(f"/api/documents/{item['id']}", json={"category": "Inventada"}).status_code == 422
@@ -137,8 +138,8 @@ def test_stats_and_filters(client, upload, process_all):
     assert client.get("/api/documents", params={"status": "ready"}).json()["total"] == 2
 
 
-def test_ask_without_api_key(client):
-    r = client.post("/api/ask", json={"question": "¿Cuándo vence mi seguro de coche?"})
+def test_assistant_without_api_key(client):
+    r = client.post("/api/assistant/chat", json={"message": "¿Cuándo vence mi seguro de coche?"})
     assert r.status_code == 503
 
 
