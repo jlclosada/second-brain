@@ -111,8 +111,8 @@ restaurar la base de datos: `docker compose exec -T db pg_restore -U brain -d br
 ## Coste
 
 Todo es gratis excepto Claude, que se paga por uso en tu cuenta de Anthropic. Clasificar documentos y
-entender la captura rápida usa Claude Haiku (una fracción de céntimo cada vez). El asistente usa el
-modelo de `CHAT_MODEL`; cámbialo a `claude-haiku-5-5` si prefieres que sea más barato.
+entender la captura rápida usa Claude Haiku (una fracción de céntimo cada vez). El asistente también usa
+Haiku por defecto (`CHAT_MODEL`); puedes cambiarlo por un modelo más potente si lo prefieres.
 
 ## Escalar
 

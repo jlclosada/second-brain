@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # IA (opcional). Sin clave se usa clasificación y captura por reglas.
     anthropic_api_key: str | None = None
     classify_model: str = "claude-haiku-5-5"
-    chat_model: str = "claude-opus-5-5"
+    chat_model: str = "claude-haiku-5-5"
 
     # Embeddings locales y gratuitos. "hash" solo sirve para tests.
     embeddings_provider: str = "fastembed"
