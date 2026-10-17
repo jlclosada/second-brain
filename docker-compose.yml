@@ -1,0 +1,70 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain
+      POSTGRES_DB: brain
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain"]
+      interval: 5s
+      retries: 10
+
+  # Aplica las migraciones de la base de datos y termina. Arranca como root solo
+  # para dejar /data en manos del usuario sin privilegios que usan app y worker.
+  migrate:
+    build: .
+    image: second-brain:local
+    user: "0"
+    command: ["sh", "-c", "chown -R brain:brain /data && python -m app.cli migrate"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://brain:brain@db:5432/brain
+    volumes:
+      - brain-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    image: second-brain:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://brain:brain@db:5432/brain
+    ports:
+      - "8000:8000"
+    volumes:
+      - brain-data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Procesa documentos, envía avisos y sincroniza calendarios.
+  # Para más capacidad: docker compose up -d --scale worker=3
+  worker:
+    image: second-brain:local
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://brain:brain@db:5432/brain
+    volumes:
+      - brain-data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
+  # Tus documentos originales, el modelo de embeddings y la clave de cifrado
+  brain-data:

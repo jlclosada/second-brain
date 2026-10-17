@@ -1,0 +1,380 @@
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+@import "tailwindcss";
+
+/*
+  Paleta "azulejo": porcelana fría, tinta azul noche, cobalto para actuar,
+  ocre para el ahora (la línea de la hora actual, lo que toca hoy).
+*/
+:root {
+  --paper: #f1f4f3;
+  --surface: #ffffff;
+  --sunken: #e7ecea;
+  --ink: #16202c;
+  --muted: #5a6472;
+  --faint: #8a94a1;
+  --line: #d6dcdf;
+  --cobalt: #2340b0;
+  --cobalt-soft: #e3e8fb;
+  --ochre: #c98a10;
+  --ochre-soft: #fbf0d6;
+  --moss: #3d7652;
+  --moss-soft: #e1efe5;
+  --clay: #b5372b;
+  --clay-soft: #f8e3df;
+  --plum: #7a3e8e;
+  --teal: #1f7a80;
+  --rose: #b8456f;
+  --slate: #56657a;
+  --shadow: 0 1px 2px rgb(22 32 44 / 0.06), 0 8px 24px -12px rgb(22 32 44 / 0.18);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1722;
+    --surface: #162030;
+    --sunken: #0b121b;
+    --ink: #e7ebf1;
+    --muted: #9aa6b6;
+    --faint: #6b7889;
+    --line: #26334a;
+    --cobalt: #8098ff;
+    --cobalt-soft: #1d2a52;
+    --ochre: #f0b443;
+    --ochre-soft: #3a2c10;
+    --moss: #74c08f;
+    --moss-soft: #16301f;
+    --clay: #f0806f;
+    --clay-soft: #3c1a16;
+    --plum: #c792d8;
+    --teal: #63c4c9;
+    --rose: #ef8fb2;
+    --slate: #a2b0c4;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -12px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0f1722;
+  --surface: #162030;
+  --sunken: #0b121b;
+  --ink: #e7ebf1;
+  --muted: #9aa6b6;
+  --faint: #6b7889;
+  --line: #26334a;
+  --cobalt: #8098ff;
+  --cobalt-soft: #1d2a52;
+  --ochre: #f0b443;
+  --ochre-soft: #3a2c10;
+  --moss: #74c08f;
+  --moss-soft: #16301f;
+  --clay: #f0806f;
+  --clay-soft: #3c1a16;
+  --plum: #c792d8;
+  --teal: #63c4c9;
+  --rose: #ef8fb2;
+  --slate: #a2b0c4;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -12px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+/* Siempre oscuro, también en modo claro: el panel del acceso y el logotipo. */
+:root {
+  --night: #16202c;
+  --night-ink: #eef1f5;
+}
+
+@theme inline {
+  --color-night: var(--night);
+  --color-night-ink: var(--night-ink);
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-cobalt: var(--cobalt);
+  --color-cobalt-soft: var(--cobalt-soft);
+  --color-ochre: var(--ochre);
+  --color-ochre-soft: var(--ochre-soft);
+  --color-moss: var(--moss);
+  --color-moss-soft: var(--moss-soft);
+  --color-clay: var(--clay);
+  --color-clay-soft: var(--clay-soft);
+  --color-plum: var(--plum);
+  --color-teal: var(--teal);
+  --color-rose: var(--rose);
+  --color-slate: var(--slate);
+  --shadow-lift: var(--shadow);
+}
+
+html {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+  touch-action: manipulation;
+  /* La cabecera fija del móvil no tapa lo que recibe el foco. */
+  scroll-padding-top: 4.5rem;
+}
+
+dialog {
+  overscroll-behavior: contain;
+}
+
+body {
+  background: var(--paper);
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  text-wrap: balance;
+  letter-spacing: -0.01em;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--cobalt);
+    outline-offset: 2px;
+  }
+}
+
+::selection {
+  background: var(--ochre-soft);
+}
+
+mark {
+  background: var(--ochre-soft);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-shadow: inset 0 -2px 0 var(--ochre);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+/* Texto de notas y respuestas del asistente */
+.prose-brain {
+  line-height: 1.65;
+  max-width: 68ch;
+}
+.prose-brain > * + * {
+  margin-top: 0.75em;
+}
+.prose-brain h1,
+.prose-brain h2,
+.prose-brain h3 {
+  margin-top: 1.4em;
+  line-height: 1.2;
+}
+.prose-brain h1 {
+  font-size: 1.6rem;
+}
+.prose-brain h2 {
+  font-size: 1.3rem;
+}
+.prose-brain h3 {
+  font-size: 1.1rem;
+}
+.prose-brain ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.prose-brain ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.prose-brain li + li {
+  margin-top: 0.25em;
+}
+.prose-brain a {
+  color: var(--cobalt);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.prose-brain blockquote {
+  border-left: 3px solid var(--ochre);
+  padding-left: 0.9rem;
+  color: var(--muted);
+}
+.prose-brain code {
+  background: var(--sunken);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.prose-brain pre {
+  background: var(--sunken);
+  padding: 0.8rem;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.prose-brain table {
+  border-collapse: collapse;
+}
+.prose-brain th,
+.prose-brain td {
+  border: 1px solid var(--line);
+  padding: 0.3rem 0.6rem;
+}
+.prose-brain li.task-list-item {
+  list-style: none;
+  margin-left: -1.25rem;
+}
+.prose-brain input[type="checkbox"] {
+  accent-color: var(--moss);
+  margin-right: 0.4rem;
+}
+
+/* ── Transiciones de vista ──────────────────────────────────────────────
+   Las navegaciones jerárquicas (lista → detalle) se deslizan; el cambio
+   entre secciones solo funde. Ver lib/nav.tsx. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+}
+
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-slide-from-right {
+  from {
+    transform: translateX(28px);
+    opacity: 0;
+  }
+}
+@keyframes vt-slide-to-left {
+  to {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+}
+@keyframes vt-slide-from-left {
+  from {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+}
+@keyframes vt-slide-to-right {
+  to {
+    transform: translateX(28px);
+    opacity: 0;
+  }
+}
+@keyframes vt-rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+::view-transition-new(.nav-forward) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both vt-slide-from-right;
+}
+::view-transition-old(.nav-forward) {
+  animation: 160ms ease-in both vt-slide-to-left;
+}
+::view-transition-new(.nav-back) {
+  animation: 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both vt-slide-from-left;
+}
+::view-transition-old(.nav-back) {
+  animation: 160ms ease-in both vt-slide-to-right;
+}
+::view-transition-new(.fade-in) {
+  animation: 200ms ease-out both vt-fade-in;
+}
+::view-transition-old(.fade-out) {
+  animation: 120ms ease-in both vt-fade-out;
+}
+::view-transition-new(.rise-in) {
+  animation: 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both vt-rise;
+}
+::view-transition-old(.rise-out) {
+  animation: 140ms ease-in both vt-fade-out;
+}
+::view-transition-group(.morph) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@keyframes now-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ochre) 50%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ochre) 0%, transparent);
+  }
+}
+.now-dot {
+  animation: now-pulse 2.4s ease-in-out infinite;
+}
+
+/* Paleta de comandos (cmdk) */
+.palette-group [cmdk-group-heading] {
+  padding: 0.6rem 0.75rem 0.3rem;
+  font-size: 0.8rem;
+  color: var(--faint);
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+.palette-item[data-selected="true"] {
+  background: var(--sunken);
+}
