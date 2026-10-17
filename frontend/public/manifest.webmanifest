@@ -1,13 +1,13 @@
 {
   "name": "Segundo Cerebro",
   "short_name": "Cerebro",
-  "description": "Tus documentos, clasificados y fáciles de encontrar.",
+  "description": "Tu agenda, tareas, notas y documentos en un solo sitio.",
   "lang": "es",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#4f46e5",
+  "background_color": "#f1f4f3",
+  "theme_color": "#16202c",
   "icons": [
     {
       "src": "/icon-192.png",

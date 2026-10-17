@@ -1,86 +1,65 @@
-import { FileText, LogOut, Search, Upload } from "lucide-react";
-import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect } from "react";
+import { Route, Routes } from "react-router-dom";
 
-import { api } from "./api";
-import DocumentPage from "./pages/DocumentPage";
-import DocumentsPage from "./pages/DocumentsPage";
-import LoginPage from "./pages/LoginPage";
-import SearchPage from "./pages/SearchPage";
-import UploadPage from "./pages/UploadPage";
+import Shell from "./components/Shell";
+import { Loading } from "./components/ui";
+import { api } from "./lib/api";
+import LoginPage from "./pages/Login";
+import TodayPage from "./pages/Today";
 
-const tabs = [
-  { to: "/", label: "Buscar", icon: Search },
-  { to: "/documentos", label: "Documentos", icon: FileText },
-  { to: "/subir", label: "Subir", icon: Upload },
-];
+// Hoy carga al instante; el resto de secciones se descargan al abrirlas.
+const AssistantPage = lazy(() => import("./pages/Assistant"));
+const CalendarPage = lazy(() => import("./pages/Calendar"));
+const DocumentPage = lazy(() => import("./pages/DocumentDetail"));
+const DocumentsPage = lazy(() => import("./pages/Documents"));
+const JournalPage = lazy(() => import("./pages/Journal"));
+const NotePage = lazy(() => import("./pages/NoteDetail"));
+const NotesPage = lazy(() => import("./pages/Notes"));
+const ProjectPage = lazy(() => import("./pages/ProjectDetail"));
+const ProjectsPage = lazy(() => import("./pages/Projects"));
+const SearchPage = lazy(() => import("./pages/Search"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const TasksPage = lazy(() => import("./pages/Tasks"));
 
 export default function App() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
+  const queryClient = useQueryClient();
+  const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false, staleTime: 60_000 });
 
   useEffect(() => {
-    api.me().then(() => setAuthed(true), () => setAuthed(false));
-    const onLogout = () => setAuthed(false);
+    const onLogout = () => {
+      // Se olvida todo lo cargado salvo la propia sesión, que pasa a "sin usuario".
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      queryClient.setQueryData(["me"], null);
+    };
     window.addEventListener("sb:logout", onLogout);
     return () => window.removeEventListener("sb:logout", onLogout);
-  }, []);
+  }, [queryClient]);
 
-  if (authed === null) return null;
-  if (!authed) return <LoginPage onLogin={() => setAuthed(true)} />;
+  if (me.isPending) return null;
+  if (!me.data) return <LoginPage onLogin={() => me.refetch()} />;
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-slate-50/90 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
-        <span className="font-semibold">Segundo Cerebro</span>
-        <nav className="hidden gap-1 sm:flex">
-          {tabs.map((t) => (
-            <NavLink
-              key={t.to}
-              to={t.to}
-              end={t.to === "/"}
-              className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 text-sm ${isActive ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800"}`
-              }
-            >
-              {t.label}
-            </NavLink>
-          ))}
-        </nav>
-        <button
-          aria-label="Cerrar sesión"
-          className="rounded-lg p-2 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
-          onClick={() => api.logout().finally(() => setAuthed(false))}
-        >
-          <LogOut size={18} />
-        </button>
-      </header>
-
-      <main className="flex-1 px-4 pt-4 pb-24 sm:pb-8">
+    <Shell>
+      <Suspense fallback={<Loading />}>
         <Routes>
-          <Route path="/" element={<SearchPage />} />
+          <Route path="/" element={<TodayPage />} />
+          <Route path="/hoy" element={<TodayPage />} />
+          <Route path="/calendario" element={<CalendarPage />} />
+          <Route path="/tareas" element={<TasksPage />} />
+          <Route path="/notas" element={<NotesPage />} />
+          <Route path="/notas/:id" element={<NotePage />} />
+          <Route path="/diario/:day?" element={<JournalPage />} />
           <Route path="/documentos" element={<DocumentsPage />} />
           <Route path="/documentos/:id" element={<DocumentPage />} />
-          <Route path="/subir" element={<UploadPage />} />
-          <Route path="*" element={<SearchPage />} />
+          <Route path="/proyectos" element={<ProjectsPage />} />
+          <Route path="/proyectos/:id" element={<ProjectPage />} />
+          <Route path="/buscar" element={<SearchPage />} />
+          <Route path="/asistente" element={<AssistantPage />} />
+          <Route path="/ajustes" element={<SettingsPage />} />
+          <Route path="*" element={<TodayPage />} />
         </Routes>
-      </main>
-
-      {/* Barra inferior para el móvil */}
-      <nav className="pb-safe fixed inset-x-0 bottom-0 z-10 grid grid-cols-3 border-t border-slate-200 bg-white pt-2 sm:hidden dark:border-slate-800 dark:bg-slate-900">
-        {tabs.map((t) => (
-          <NavLink
-            key={t.to}
-            to={t.to}
-            end={t.to === "/"}
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 text-xs ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500"}`
-            }
-          >
-            <t.icon size={22} />
-            {t.label}
-          </NavLink>
-        ))}
-      </nav>
-    </div>
+      </Suspense>
+    </Shell>
   );
 }

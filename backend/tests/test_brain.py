@@ -37,10 +37,14 @@ def test_notes_links_and_backlinks(client, process_all):
     hits = client.get("/api/search", params={"q": "Lisboa", "kind": "note"}).json()["hits"]
     assert {h["item"]["id"] for h in hits} == {target["id"], source["id"]}
 
+    # Una nota creada después de ser mencionada también queda enlazada.
+    later = client.post("/api/notes", json={"title": "No existe", "body": "Ahora sí"}).json()
+    assert [b["title"] for b in later["backlinks"]] == ["Ideas"]
+
     client.patch(f"/api/notes/{source['id']}", json={"pinned": True})
     assert client.get("/api/notes").json()[0]["id"] == source["id"]
     assert client.delete(f"/api/notes/{target['id']}").status_code == 204
-    assert client.get(f"/api/notes/{source['id']}").json()["links"] == []
+    assert [link["title"] for link in client.get(f"/api/notes/{source['id']}").json()["links"]] == ["No existe"]
 
 
 def test_journal_is_one_per_day(client):

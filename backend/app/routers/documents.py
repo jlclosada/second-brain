@@ -63,6 +63,7 @@ def list_documents(
     year: int | None = None,
     status_: str | None = Query(default=None, alias="status"),
     tag: str | None = None,
+    project_id: uuid.UUID | None = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
@@ -76,6 +77,8 @@ def list_documents(
         query = query.where(Item.status == status_)
     if tag:
         query = query.where(Item.tags.any(tag))
+    if project_id:
+        query = query.where(Item.project_id == project_id)
     total = db.scalar(select(func.count()).select_from(query.subquery()))
     items = db.scalars(
         query.options(selectinload(Item.document))

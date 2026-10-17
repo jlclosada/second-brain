@@ -58,7 +58,9 @@ def _note_title(title: str, body: str) -> str:
 
 
 def excerpt(body: str, length: int = 180) -> str:
-    text = re.sub(r"[#>*_`\-\[\]]+", " ", body)
+    text = re.sub(r"^\s*[-*+]\s+\[[ xX]\]\s*", "", body, flags=re.MULTILINE)  # casillas de listas
+    text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
+    text = re.sub(r"[#>*_`\-\[\]]+", " ", text)
     text = " ".join(text.split())
     return text[:length] + ("…" if len(text) > length else "")
 
@@ -85,6 +87,13 @@ def update_links(db: Session, item: Item) -> None:
         db.add(ItemLink(source_id=item.id, target_id=target))
 
 
+def relink_mentions(db: Session, item: Item) -> None:
+    """Las notas que ya mencionaban [[este título]] pasan a enlazar con este elemento."""
+    pattern = f"%[[{item.title.replace('%', '').replace('_', '')}]]%"
+    for other in db.scalars(select(Item).join(Note).where(Note.body.ilike(pattern), Item.id != item.id)):
+        update_links(db, other)
+
+
 def links_of(db: Session, item: Item) -> tuple[list[LinkRef], list[LinkRef]]:
     out = db.execute(
         select(Item.id, Item.kind, Item.title).join(ItemLink, ItemLink.target_id == Item.id)
@@ -109,6 +118,7 @@ def create_note(db: Session, data: NoteIn, journal_date: date | None = None) -> 
     db.add(item)
     db.flush()
     update_links(db, item)
+    relink_mentions(db, item)
     schedule_index(db, item.id)
     db.commit()
     return item
@@ -128,6 +138,8 @@ def update_note(db: Session, item: Item, changes: dict) -> Item:
     item.updated_at = datetime.now(UTC)
     db.flush()
     update_links(db, item)
+    if "title" in changes:
+        relink_mentions(db, item)
     schedule_index(db, item.id)
     db.commit()
     return item

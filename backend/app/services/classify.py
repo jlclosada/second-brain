@@ -144,7 +144,9 @@ def classify_with_rules(text: str, filename: str) -> DocumentInfo:
             continue
 
     first_line = next((line.strip() for line in text.splitlines() if len(line.strip()) > 3), "")
-    title = stem if len(stem) > 3 and not re.fullmatch(r"[\w ]*\d{3,}[\w ]*", stem) else first_line[:80] or stem
+    # "scan_0032" o "IMG 2041" no dicen nada; "poliza hogar 2026" sí.
+    generic = re.fullmatch(r"(?i)(scan|escaneo|img|image|imagen|foto|photo|doc|documento|file|archivo|whatsapp image)?[\s\d_-]*", stem)
+    title = stem.capitalize() if len(re.sub(r"[\W\d_]", "", stem)) > 3 and not generic else first_line[:80] or stem
     summary = " ".join(text.split())[:240] or None
 
     tags = [doc_type] + ([str(year)] if year else [])
