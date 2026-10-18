@@ -153,3 +153,29 @@ def test_snippet_escapes_document_html(client, upload, process_all):
     item_id = client.get("/api/documents").json()["items"][0]["id"]
     r = client.get(f"/api/documents/{item_id}/file")
     assert r.headers["content-security-policy"] == "sandbox"
+
+
+NOMINA_JUNIO = """ACME SOLUCIONES S.L.
+Nómina. Recibo de salarios. Periodo de liquidación: 01/06/2023 a 30/06/2023.
+Trabajador: José López. Líquido a percibir: 2.140,33 euros."""
+
+NOMINA_MAYO = """ACME SOLUCIONES S.L.
+Nómina. Recibo de salarios. Periodo de liquidación: 01/05/2023 a 31/05/2023.
+Trabajador: José López. Líquido a percibir: 2.098,10 euros."""
+
+
+def test_search_by_month_and_archive(client, upload, process_all):
+    upload("doc1.txt", NOMINA_JUNIO)
+    upload("doc2.txt", NOMINA_MAYO)
+    upload("poliza.txt", POLIZA_COCHE_2024)
+    process_all()
+
+    for q in ("nómina de junio 2023", "nomina 06/2023", "nóminas junio"):
+        hits = client.get("/api/search", params={"q": q, "kind": "document"}).json()["hits"]
+        assert hits and "01/06/2023" in client.get(f"/api/documents/{hits[0]['item']['id']}").json()["text"], q
+        assert len(hits) == 1, q
+
+    archive = client.get("/api/archive").json()
+    trabajo = next(c for c in archive if c["category"] == "Trabajo")
+    assert trabajo["count"] == 2 and trabajo["years"][0]["year"] == 2023
+    assert {c["category"] for c in archive} >= {"Trabajo", "Vehículo"}

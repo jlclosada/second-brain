@@ -1,4 +1,5 @@
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -49,9 +50,20 @@ CSP = "; ".join([
 ])
 
 
+def _warm_search() -> None:
+    """Carga el modelo de búsqueda por significado al arrancar: la primera búsqueda ya es rápida."""
+    try:
+        from app.services.embeddings import embed_query
+
+        embed_query("calentar")
+    except Exception:  # noqa: BLE001  si falla, se cargará en la primera búsqueda
+        log.warning("No se pudo precargar el modelo de búsqueda", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     get_settings().files_dir.mkdir(parents=True, exist_ok=True)
+    threading.Thread(target=_warm_search, daemon=True).start()
     yield
 
 

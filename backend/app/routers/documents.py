@@ -180,3 +180,22 @@ def stats(db: Session = Depends(get_db)):
         years=sorted(facet(Item.year), key=lambda f: f.value, reverse=True),
         expiring=[ItemOut.model_validate(i) for i in expiring],
     )
+
+
+@router.get("/archive")
+def archive(db: Session = Depends(get_db)):
+    """Todos los documentos, ordenados como un archivo: categoría → año → documentos (lo más reciente primero)."""
+    items = db.scalars(
+        select(Item).options(selectinload(Item.document)).where(Item.kind == "document", Item.status == "ready")
+        .order_by(Item.category, Item.year.desc().nulls_last(), Item.doc_date.desc().nulls_last(), Item.title)
+    ).all()
+    categories: dict[str, dict[int | None, list]] = {}
+    for item in items:
+        categories.setdefault(item.category or "Otros", {}).setdefault(item.year, []).append(ItemOut.model_validate(item))
+    out = [
+        {"category": cat, "count": sum(len(v) for v in years.values()),
+         "years": [{"year": y, "items": docs} for y, docs in years.items()]}
+        for cat, years in categories.items()
+    ]
+    # Primero las categorías con más papeles; «Otros» siempre al final.
+    return sorted(out, key=lambda c: (c["category"] == "Otros", -c["count"], c["category"]))

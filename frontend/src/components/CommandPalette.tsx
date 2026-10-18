@@ -18,6 +18,7 @@ const PAGES = [
   { to: "/bandeja", label: "Correo" },
   { to: "/calendario", label: "Agenda" },
   { to: "/tareas", label: "Tareas" },
+  { to: "/documentos", label: "Documentos" },
   { to: "/documentos?subir=1", label: "Subir documentos" },
   { to: "/ajustes?seccion=conexiones", label: "Conectar Google o GitHub" },
   { to: "/ajustes", label: "Ajustes" },

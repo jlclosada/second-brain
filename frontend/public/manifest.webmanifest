@@ -1,13 +1,13 @@
 {
-  "name": "Segundo Cerebro",
-  "short_name": "Cerebro",
-  "description": "Tu agenda, tareas, notas y documentos en un solo sitio.",
+  "name": "Jarvis",
+  "short_name": "Jarvis",
+  "description": "Tu segundo cerebro: agenda, correo, tareas y documentos, y un asistente que lo maneja todo.",
   "lang": "es",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f1f4f3",
-  "theme_color": "#16202c",
+  "background_color": "#04060b",
+  "theme_color": "#04060b",
   "icons": [
     {
       "src": "/icon-192.png",

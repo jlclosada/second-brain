@@ -55,6 +55,8 @@ Devuelve sus metadatos para poder encontrarlo después buscando cosas como "segu
 - title: claro y específico, con la entidad y el año cuando existan. Nombra lo que ES, no cómo es el archivo:
   nada de "imagen", "PDF", "documento sin texto", "captura" ni el nombre del archivo. Máximo 8 palabras.
   Ejemplos: "Logotipo Administratum", "Cartel torneo Warhammer 40k 2026", "Certificado titularidad cuenta Santander".
+- Documentos periódicos (nóminas, facturas, recibos, extractos): pon en el título el mes y el año del periodo
+  ("Nómina junio 2023 Acme", "Factura luz marzo 2024 Iberdrola") y en doc_date el último día de ese periodo.
 - Las fechas en formato AAAA-MM-DD. Si un dato no aparece, déjalo vacío; no lo inventes."""
 
 

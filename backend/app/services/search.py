@@ -20,12 +20,21 @@ CANDIDATES = 50
 MAX_SEMANTIC_DISTANCE = 0.75
 
 _YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+MONTHS = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6, "julio": 7, "agosto": 8,
+    "septiembre": 9, "setiembre": 9, "sept": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
+}
+_MONTH_RE = re.compile(r"\b(" + "|".join(MONTHS) + r")\b", re.IGNORECASE)
+# «06/2023», «6-2023» o «2023-06»
+_NUMERIC_MONTH_RE = re.compile(r"\b(?:(0?[1-9]|1[0-2])[/\-.](19[5-9]\d|20[0-4]\d)|(19[5-9]\d|20[0-4]\d)-(0[1-9]|1[0-2]))\b")
+_FILLER_RE = re.compile(r"\b(de|del|en|el|la|los|las)\b(?=\s*$)|^\s*(de|del)\b", re.IGNORECASE)
 
 
 @dataclass
 class ParsedQuery:
     text: str
     years: list[int] = field(default_factory=list)
+    months: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -39,13 +48,34 @@ class Hit:
 
 
 def parse_query(q: str) -> ParsedQuery:
-    years = sorted({int(y) for y in _YEAR_RE.findall(q)})
-    rest = _YEAR_RE.sub(" ", q)
-    return ParsedQuery(text=" ".join(rest.split()), years=years)
+    """«nómina de junio 2023» → texto «nómina», mes 6, año 2023."""
+    months: set[int] = set()
+    years: set[int] = set()
+    for m in _NUMERIC_MONTH_RE.finditer(q):
+        month, year = (m.group(1), m.group(2)) if m.group(1) else (m.group(4), m.group(3))
+        months.add(int(month))
+        years.add(int(year))
+    rest = _NUMERIC_MONTH_RE.sub(" ", q)
+    months |= {MONTHS[m.lower()] for m in _MONTH_RE.findall(rest)}
+    rest = _MONTH_RE.sub(" ", rest)
+    years |= {int(y) for y in _YEAR_RE.findall(rest)}
+    rest = " ".join(_YEAR_RE.sub(" ", rest).split())
+    rest = " ".join(_FILLER_RE.sub(" ", rest).split())
+    return ParsedQuery(text=rest, years=sorted(years), months=sorted(months))
 
 
-def _filters(years: list[int], category: str | None, kind: str | None = None) -> tuple[str, dict]:
+def _filters(years: list[int], category: str | None, kind: str | None = None,
+             months: list[int] | None = None) -> tuple[str, dict]:
     clauses, params = ["i.status = 'ready'"], {}
+    if months:
+        # El mes del documento, o el mes nombrado en su título o resumen («Nómina junio 2023»).
+        names = [name for name, n in MONTHS.items() if n in months]
+        clauses.append(
+            "(EXTRACT(MONTH FROM i.doc_date) = ANY(:months) OR "
+            "immutable_unaccent(lower(i.title || ' ' || coalesce(i.summary, ''))) ~ :month_names)"
+        )
+        params["months"] = months
+        params["month_names"] = r"\m(" + "|".join(names) + r")\M"
     if kind:
         clauses.append("i.kind = :kind")
         params["kind"] = kind
@@ -118,7 +148,9 @@ def _snippets(db: Session, hits: list[Hit], query_text: str) -> None:
 def search(db: Session, q: str, category: str | None = None, limit: int = 20,
            kind: str | None = None) -> tuple[ParsedQuery, list[Hit]]:
     parsed = parse_query(q)
-    hits = _search(db, parsed, parsed.years, category, limit, kind)
+    hits = _search(db, parsed, parsed.years, category, limit, kind, parsed.months)
+    if not hits and parsed.months:
+        hits = _search(db, parsed, parsed.years, category, limit, kind)
     if not hits and parsed.years and parsed.text:
         # Si nada tiene ese año, mejor mostrar lo más parecido que nada.
         hits = _search(db, parsed, [], category, limit, kind)
@@ -127,8 +159,8 @@ def search(db: Session, q: str, category: str | None = None, limit: int = 20,
 
 
 def _search(db: Session, parsed: ParsedQuery, years: list[int], category: str | None, limit: int,
-            kind: str | None = None) -> list[Hit]:
-    where, params = _filters(years, category, kind)
+            kind: str | None = None, months: list[int] | None = None) -> list[Hit]:
+    where, params = _filters(years, category, kind, months)
 
     if not parsed.text:
         # Solo filtros ("2024"): lo más reciente primero.

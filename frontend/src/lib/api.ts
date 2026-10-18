@@ -201,7 +201,8 @@ export type CaptureResult = {
 };
 
 export type SearchHit = { item: Item; score: number; snippet: string; matched_by: string[] };
-export type SearchResponse = { query: string; text: string; years: number[]; hits: SearchHit[] };
+export type ArchiveCategory = { category: string; count: number; years: { year: number | null; items: Item[] }[] };
+export type SearchResponse = { query: string; text: string; years: number[]; months: number[]; hits: SearchHit[] };
 export type Facet = { value: string; count: number };
 export type Stats = { total: number; pending: number; errors: number; categories: Facet[]; years: Facet[]; expiring: Item[] };
 
@@ -422,6 +423,7 @@ export const api = {
 
   // Documentos
   stats: () => request<Stats>("/api/stats"),
+  archive: () => request<ArchiveCategory[]>("/api/archive"),
   categories: () => request<string[]>("/api/categories"),
   documents: (params: { category?: string; year?: number; status?: string; project_id?: string; offset?: number }) =>
     request<{ items: Item[]; total: number }>(`/api/documents${qs({ limit: 60, ...params })}`),

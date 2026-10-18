@@ -32,6 +32,7 @@ def search_endpoint(
         query=q,
         text=parsed.text,
         years=parsed.years,
+        months=parsed.months,
         hits=[
             SearchHit(
                 item=ItemOut.model_validate(items[h.item_id]),

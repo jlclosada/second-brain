@@ -74,6 +74,7 @@ class SearchResponse(BaseModel):
     query: str
     text: str
     years: list[int]
+    months: list[int] = []
     hits: list[SearchHit]
 
 
