@@ -53,6 +53,9 @@ const TOOL_LABEL: Record<string, string> = {
   crear_nota: "Guardando en tu vault",
   crear_recordatorio: "Programando el aviso",
   leer_correo: "Leyendo el correo",
+  cambiar_evento: "Cambiando el evento",
+  cancelar_evento: "Cancelando el evento",
+  borrar_tarea: "Borrando la tarea",
   redactar_respuesta: "Redactando la respuesta",
   escribir_en_diario: "Escribiendo en tu diario",
 };
@@ -381,7 +384,7 @@ export default function JarvisPage() {
             } else if (e.type === "done") {
               finalText = e.reply.text;
               patch((m) => ({ ...m, text: e.reply.text, actions: e.reply.actions, streaming: false, working: null }));
-              if (e.reply.actions.some((a) => a.tool.startsWith("crear") || a.tool.startsWith("completar") || a.tool === "escribir_en_diario"))
+              if (e.reply.actions.some((a) => /^(crear|completar|cambiar|cancelar|borrar)/.test(a.tool) || a.tool === "escribir_en_diario"))
                 queryClient.invalidateQueries();
             } else if (e.type === "error") {
               patch((m) => ({ ...m, text: e.message, error: true, streaming: false, working: null }));

@@ -230,3 +230,34 @@ def test_github_connects_itself_from_env_token(client, monkeypatch):
     status = client.get("/api/integrations").json()["github"]
     assert status["connected"] and status["account"] == "jlclosada"
     assert re.match(r"^\d{4}-", status["connected_at"])
+
+
+def test_jarvis_moves_and_cancels_google_events(client, monkeypatch, process_all):
+    from app.db import SessionLocal
+    from app.services.assistant import Toolbox
+
+    fake = FakeGoogle()
+    monkeypatch.setattr(google, "transport", httpx.MockTransport(fake.handler))
+    _connect_google(client, fake)
+    process_all()
+
+    today = datetime.now(UTC).date()
+    with SessionLocal() as db:
+        tools = Toolbox(db)
+        agenda = tools.run("agenda", {"desde": today.isoformat(), "hasta": (today + timedelta(days=1)).isoformat()})
+        meeting = next(e for e in agenda["eventos"] if e["titulo"] == "Reunión de equipo")
+        assert meeting["se_puede_cambiar"] and meeting["calendario"] == "yo@gmail.com"
+
+        new_start = (datetime.now(UTC) + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+        local = new_start.astimezone(__import__("app.config", fromlist=["x"]).get_settings().tz).strftime("%Y-%m-%dT%H:%M")
+        moved = tools.run("cambiar_evento", {"id": meeting["id"], "titulo": None, "inicio": local, "fin": None, "lugar": "Sala 2"})
+        assert moved["ok"] and moved["inicio"].endswith(local[-5:])
+        remote = fake.events["primary"]["e1"]
+        assert remote["location"] == "Sala 2" and remote["start"]["dateTime"].startswith(local)
+        # Conserva la duración (1 hora)
+        assert datetime.fromisoformat(remote["end"]["dateTime"]) - datetime.fromisoformat(remote["start"]["dateTime"]) == timedelta(hours=1)
+
+        out = tools.run("cancelar_evento", {"id": meeting["id"]})
+        assert out["cancelado"] == "Reunión de equipo"
+        assert "e1" not in fake.events["primary"]
+        assert [a.tool for a in tools.actions][-2:] == ["cambiar_evento", "cancelar_evento"]

@@ -38,6 +38,8 @@ Cómo trabajas:
 - Actúas cuando te lo pide o cuando es claramente lo que quiere, sin pedir confirmación para cosas
   reversibles: crear tareas, eventos, recordatorios, notas en el vault, apuntes en el diario. Dilo en una
   frase al terminar.
+- Para mover o cancelar un evento, búscalo con agenda (amplía el rango si hace falta). Si solo uno encaja,
+  hazlo directamente; si hay varios parecidos, pregunta cuál. Di siempre cuál has cambiado y a qué hora.
 - Todo lo que tenga día y hora (dentista, médico, reunión, llamada, cena…) es un EVENTO del calendario,
   aunque lo llame "tarea". Si no dice cuánto dura, una hora. Las tareas son para cosas por hacer sin cita.
 - Correo: puedes leer hilos (leer_correo) y redactar respuestas (redactar_respuesta). Nunca envías: dejas
@@ -100,6 +102,16 @@ TOOLS = [
           {"titulo": _S, "inicio": _S, "fin": _NS, "dia_completo": {"type": "boolean"}, "lugar": _NS,
            "aviso_minutos": {"type": ["integer", "null"]}},
           ["titulo", "inicio", "fin", "dia_completo", "lugar", "aviso_minutos"]),
+    _tool("cambiar_evento", "Cambia un evento existente por su id (sácalo antes con agenda): título, inicio, fin o lugar. "
+          "Deja a null lo que no cambie. Fechas AAAA-MM-DDTHH:MM (hora local). Si mueves el inicio sin dar fin, "
+          "conserva la duración.",
+          {"id": _S, "titulo": _NS, "inicio": _NS, "fin": _NS, "lugar": _NS},
+          ["id", "titulo", "inicio", "fin", "lugar"]),
+    _tool("cancelar_evento", "Cancela (borra) un evento del calendario por su id (sácalo antes con agenda). En Google "
+          "va a la papelera del calendario. Si es una ocurrencia de un evento repetido, solo cancela esa.",
+          {"id": _S}, ["id"]),
+    _tool("borrar_tarea", "Borra una tarea por su id (para tareas que ya no tienen sentido; si está hecha, usa "
+          "completar_tarea).", {"id": _S}, ["id"]),
     _tool("crear_nota", "Guarda una nota en markdown en el vault (en la Bandeja). Enlaza con [[wikilinks]] a lo "
           "relacionado.", {"titulo": _S, "contenido": _S}, ["titulo", "contenido"]),
     _tool("crear_recordatorio", "Programa un aviso push a una hora concreta (AAAA-MM-DDTHH:MM, hora local).",
@@ -179,7 +191,8 @@ class Toolbox:
         start, _ = local_day_bounds(first)
         _, end = local_day_bounds(last)
         events = [{"id": str(o.item.id), "titulo": o.item.title, "inicio": _fmt_dt(o.starts_at),
-                   "fin": _fmt_dt(o.ends_at), "dia_completo": o.event.all_day, "lugar": o.event.location}
+                   "fin": _fmt_dt(o.ends_at), "dia_completo": o.event.all_day, "lugar": o.event.location,
+                   "calendario": o.calendar.name, "se_puede_cambiar": brain.event_out(o).writable}
                   for o in events_between(self.db, start, end)]
         tasks = [{"id": str(i.id), "titulo": i.title, "fecha": str(t.due_date), "hora": str(t.due_time or ""),
                   "hecha": bool(t.done_at)}
@@ -252,6 +265,39 @@ class Toolbox:
         when = _fmt_dt(item.event.starts_at)
         self.actions.append(ChatAction(tool="crear_evento", summary=f"Añadió «{item.title}» el {when}", link=_link(item)))
         return {"id": str(item.id), "inicio": when, "ok": True}
+
+    def t_cambiar_evento(self, id: str, titulo: str | None, inicio: str | None, fin: str | None, lugar: str | None):
+        item = brain.get_item(self.db, uuid.UUID(id), "event")
+        changes: dict[str, Any] = {}
+        if titulo:
+            changes["title"] = titulo
+        if inicio:
+            changes["starts_at"] = _local(inicio)
+        if fin:
+            changes["ends_at"] = _local(fin)
+        if lugar is not None:
+            changes["location"] = lugar or None
+        before = _fmt_dt(item.event.starts_at)
+        item = brain.update_event(self.db, item, changes)
+        after = _fmt_dt(item.event.starts_at)
+        moved = f" ({before} → {after})" if before != after else ""
+        self.actions.append(ChatAction(tool="cambiar_evento", summary=f"Cambió «{item.title}»{moved}", link=_link(item)))
+        return {"ok": True, "inicio": after, "fin": _fmt_dt(item.event.ends_at)}
+
+    def t_cancelar_evento(self, id: str):
+        item = brain.get_item(self.db, uuid.UUID(id), "event")
+        title, when = item.title, _fmt_dt(item.event.starts_at)
+        brain.delete_event(self.db, item)
+        self.actions.append(ChatAction(tool="cancelar_evento", summary=f"Canceló «{title}» del {when}"))
+        return {"ok": True, "cancelado": title, "era": when}
+
+    def t_borrar_tarea(self, id: str):
+        item = brain.get_item(self.db, uuid.UUID(id), "task")
+        title = item.title
+        self.db.delete(item)
+        self.db.commit()
+        self.actions.append(ChatAction(tool="borrar_tarea", summary=f"Borró la tarea «{title}»"))
+        return {"ok": True}
 
     def t_leer_nota(self, nota: str) -> dict:
         note = vault.find_note(self.db, nota)
