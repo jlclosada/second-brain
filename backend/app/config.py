@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     gmail_sync_minutes: int = 5
     google_calendar_sync_minutes: int = 10
     github_sync_minutes: int = 10
+    # Token de GitHub (p. ej. el de `gh auth token`). Si está, GitHub se conecta solo.
+    github_token: str | None = None
+    icloud_sync_minutes: int = 10
     # Contacto que se envía a los servicios de notificaciones push (requisito de VAPID).
     vapid_contact: str = "mailto:admin@localhost"
     static_dir: Path | None = None

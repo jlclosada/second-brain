@@ -93,6 +93,8 @@ class ChatAction(BaseModel):
     tool: str
     summary: str
     link: str | None = None
+    # Datos para que la interfaz pinte algo más (p. ej. un borrador de correo para revisar y enviar).
+    data: dict | None = None
 
 
 class ChatMessage(BaseModel):
@@ -134,6 +136,7 @@ class IntegrationOut(BaseModel):
 class IntegrationsOut(BaseModel):
     google: IntegrationOut
     github: IntegrationOut
+    icloud: IntegrationOut
 
 
 class GoogleClientIn(BaseModel):

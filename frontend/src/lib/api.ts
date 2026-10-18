@@ -67,7 +67,7 @@ export type CalendarSource = {
   id: string;
   name: string;
   color: Color;
-  source: "local" | "ics" | "google";
+  source: "local" | "ics" | "google" | "icloud";
   enabled: boolean;
   writable: boolean;
   primary: boolean;
@@ -81,7 +81,7 @@ export type CalEvent = {
   title: string;
   calendar_id: string;
   color: Color;
-  source: "local" | "ics" | "google";
+  source: "local" | "ics" | "google" | "icloud";
   starts_at: string;
   ends_at: string;
   all_day: boolean;
@@ -137,7 +137,7 @@ export type Today = {
   counts: Record<string, number>;
   inbox: Inbox | null;
   github: { connected: boolean; account: string | null; reviews: Task[]; assigned: Task[] };
-  connections: { google: ConnectionStatus; github: ConnectionStatus; google_configured: "yes" | "no" };
+  connections: { google: ConnectionStatus; github: ConnectionStatus; icloud: ConnectionStatus; google_configured: "yes" | "no" };
 };
 
 export type ConnectionStatus = "off" | "ok" | "error" | "reconnect";
@@ -171,7 +171,7 @@ export type Inbox = {
 };
 
 export type Integration = {
-  provider: "google" | "github";
+  provider: "google" | "github" | "icloud";
   configured: boolean;
   connected: boolean;
   account: string | null;
@@ -217,7 +217,7 @@ export type SessionInfo = { id: string; created_at: string; last_seen_at: string
 export type AuditEntry = { at: string; action: string; ip: string | null; detail: Record<string, unknown> };
 export type AppNotification = { id: string; kind: string; title: string; body: string | null; url: string | null; created_at: string; read_at: string | null };
 
-export type ChatAction = { tool: string; summary: string; link: string | null };
+export type ChatAction = { tool: string; summary: string; link: string | null; data?: Record<string, string> | null };
 export type ChatMessage = { role: "user" | "assistant"; text: string; actions: ChatAction[] };
 export type Conversation = { id: string; title: string; updated_at: string };
 
@@ -351,13 +351,13 @@ export const api = {
   capture: (text: string, commit = true, kind?: CaptureKind) => request<CaptureResult>("/api/capture", send("POST", { text, commit, kind })),
 
   // Conexiones
-  integrations: () => request<{ google: Integration; github: Integration }>("/api/integrations"),
+  integrations: () => request<{ google: Integration; github: Integration; icloud: Integration }>("/api/integrations"),
   setGoogleClient: (client_id: string, client_secret: string) => request<void>("/api/integrations/google/client", send("PUT", { client_id, client_secret })),
   googleStart: () => request<{ url: string }>("/api/integrations/google/start"),
   googleDisconnect: (forgetApp = false) => request<void>(`/api/integrations/google${qs({ forget_app: forgetApp || undefined })}`, send("DELETE")),
   githubConnect: (token: string) => request<Integration>("/api/integrations/github", send("PUT", { token })),
   githubDisconnect: () => request<void>("/api/integrations/github", send("DELETE")),
-  syncIntegration: (provider: "google" | "github") => request<void>(`/api/integrations/${provider}/sync`, send("POST")),
+  syncIntegration: (provider: "google" | "github" | "icloud") => request<void>(`/api/integrations/${provider}/sync`, send("POST")),
 
   // Memoria (vault de Obsidian) y actividad de Jarvis
   memoryStatus: () => request<MemoryStatus>("/api/memory/status"),
@@ -371,6 +371,10 @@ export const api = {
   inbox: (view: InboxView = "attention") => request<Inbox>(`/api/inbox${qs({ view })}`),
   archiveEmail: (id: string) => request<void>(`/api/inbox/${id}/archive`, send("POST")),
   readEmail: (id: string, unread = false) => request<void>(`/api/inbox/${id}/read${qs({ unread: unread || undefined })}`, send("POST")),
+  sendDraft: (draftId: string, body: { email_id?: string; body?: string }) =>
+    request<void>(`/api/inbox/drafts/${encodeURIComponent(draftId)}/send`, send("POST", body)),
+  icloudConnect: (apple_id: string, password: string) => request<Integration>("/api/integrations/icloud", send("PUT", { apple_id, password })),
+  icloudDisconnect: () => request<void>("/api/integrations/icloud", send("DELETE")),
   emailToTask: (id: string, body: { due_date?: string; archive?: boolean } = {}) => request<Task>(`/api/inbox/${id}/task`, send("POST", body)),
 
   // Tareas
@@ -452,7 +456,7 @@ export const api = {
   deleteConversation: (id: string) => request<void>(`/api/assistant/conversations/${id}`, send("DELETE")),
 };
 
-export function itemPath(kind: Kind, id: string) {
+export function itemPath(kind: Kind, id: string, title?: string) {
   switch (kind) {
     case "document":
       return `/documentos/${id}`;
@@ -465,6 +469,7 @@ export function itemPath(kind: Kind, id: string) {
     case "email":
       return `/bandeja?correo=${id}`;
     case "vault":
-      return `/memoria?id=${id}`;
+      // La memoria no se navega: se le pregunta a Jarvis.
+      return `/?q=${encodeURIComponent(`Resúmeme mi nota «${title ?? id}» y lo importante que debo saber`)}`;
   }
 }

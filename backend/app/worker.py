@@ -20,6 +20,7 @@ from app.services import (  # noqa: F401  registran sus trabajos
     downloads,
     github,
     google,
+    icloud,
     indexing,
     jobs,
     pipeline,

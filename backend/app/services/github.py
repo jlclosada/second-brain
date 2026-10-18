@@ -158,6 +158,19 @@ def _sync_github(db: Session, payload: dict) -> None:
 
 def schedule_github_sync(db: Session, now: datetime) -> None:
     row = db.get(Integration, "github")
+    token = (get_settings().github_token or "").strip()
+    if token and (row is None or not row.secret_encrypted or row.status == "reconnect"):
+        # Con GITHUB_TOKEN en .env (p. ej. el de `gh auth token`) se conecta solo.
+        stored = json.loads(decrypt(row.secret_encrypted) or "{}").get("token") if row and row.secret_encrypted else None
+        if stored != token:
+            try:
+                connect(db, token)
+                db.commit()
+                log.info("GitHub conectado con GITHUB_TOKEN")
+            except (GitHubError, httpx.HTTPError) as exc:
+                db.rollback()
+                log.warning("GITHUB_TOKEN no sirve: %s", exc)
+            return
     if row is None or not row.secret_encrypted or row.status == "reconnect":
         return
     last = (row.state or {}).get("synced_at")

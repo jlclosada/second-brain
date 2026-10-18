@@ -35,8 +35,9 @@ TAG_RE = re.compile(r"(?<!\w)#([\wáéíóúñü\-]{2,30})", re.IGNORECASE)
 
 class CaptureParse(BaseModel):
     kind: Literal["task", "event", "note", "reminder"] = Field(
-        description="event si tiene hora y es algo a lo que se asiste; reminder si pide que se le avise; "
-                    "note si es una idea o información; task en el resto de casos"
+        description="event si tiene hora o es una cita a la que se asiste (médico, dentista, reunión, llamada, "
+                    "cena…), aunque la persona diga 'tarea'; reminder si pide que se le avise; note si es una idea o "
+                    "información; task en el resto de casos"
     )
     title: str = Field(description="Título breve y claro, sin la fecha ni la hora")
     date: str | None = Field(default=None, description="AAAA-MM-DD")
@@ -65,7 +66,7 @@ def _rules(text: str, now: datetime) -> CaptureParse:
 
     if any(w in folded for w in REMINDER_WORDS) and when.at is not None:
         kind = "reminder"
-    elif any(w in folded for w in EVENT_WORDS) and when.day is not None:
+    elif any(w in folded for w in EVENT_WORDS) and (when.day is not None or when.at is not None):
         kind = "event"
     else:
         kind = "task"
@@ -137,6 +138,10 @@ def capture(db: Session, text: str, commit: bool = True, kind: str | None = None
     out = CaptureOut(kind=parsed.kind, title=parsed.title, tags=brain.clean_tags(parsed.tags),
                      priority=max(0, min(3, parsed.priority)), parsed_by=by)
 
+    if parsed.kind == "event" and day is None and at is not None:
+        # «Dentista a las 10» sin día: hoy si aún no ha pasado la hora, si no mañana.
+        now_local = datetime.now(tz)
+        day = now_local.date() if at > now_local.time() else now_local.date() + timedelta(days=1)
     if parsed.kind == "event" and day is None:
         if kind == "event":
             day = datetime.now(tz).date()  # lo pediste como evento: hoy, todo el día

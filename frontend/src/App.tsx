@@ -14,7 +14,6 @@ const DocumentPage = lazy(() => import("./pages/DocumentDetail"));
 const DocumentsPage = lazy(() => import("./pages/Documents"));
 const InboxPage = lazy(() => import("./pages/Inbox"));
 const JournalPage = lazy(() => import("./pages/Journal"));
-const MemoryPage = lazy(() => import("./pages/Memory"));
 const NotePage = lazy(() => import("./pages/NoteDetail"));
 const NotesPage = lazy(() => import("./pages/Notes"));
 const ProjectPage = lazy(() => import("./pages/ProjectDetail"));
@@ -46,9 +45,9 @@ export default function App() {
         <Routes>
           <Route path="/" element={<JarvisPage />} />
           <Route path="/hoy" element={<Navigate to="/" replace />} />
-          <Route path="/memoria" element={<MemoryPage />} />
+          <Route path="/memoria" element={<Navigate to="/" replace />} />
           <Route path="/bandeja" element={<InboxPage />} />
-          <Route path="/biblioteca" element={<Navigate to="/memoria" replace />} />
+          <Route path="/biblioteca" element={<Navigate to="/" replace />} />
           <Route path="/calendario" element={<CalendarPage />} />
           <Route path="/tareas" element={<TasksPage />} />
           <Route path="/notas" element={<NotesPage />} />

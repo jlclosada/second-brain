@@ -18,9 +18,6 @@ const PAGES = [
   { to: "/bandeja", label: "Correo" },
   { to: "/calendario", label: "Agenda" },
   { to: "/tareas", label: "Tareas" },
-  { to: "/memoria", label: "Memoria: tu vault de Obsidian" },
-  { to: "/memoria?vista=documentos", label: "Documentos" },
-  { to: "/memoria?vista=actividad", label: "Lo que ha hecho Jarvis" },
   { to: "/documentos?subir=1", label: "Subir documentos" },
   { to: "/ajustes?seccion=conexiones", label: "Conectar Google o GitHub" },
   { to: "/ajustes", label: "Ajustes" },
@@ -103,7 +100,12 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                 {results.data.hits.slice(0, 8).map((h) => {
                   const Icon = KIND_ICON[h.item.kind];
                   return (
-                    <Command.Item key={h.item.id} value={h.item.id} onSelect={() => open_(itemPath(h.item.kind, h.item.id))} className="palette-item">
+                    <Command.Item
+                      key={h.item.id}
+                      value={h.item.id}
+                      onSelect={() => open_(itemPath(h.item.kind, h.item.id, h.item.title))}
+                      className="palette-item"
+                    >
                       <Icon size={18} className="shrink-0 text-muted" />
                       <div className="min-w-0 flex-1">
                         <div className="truncate">{h.item.title}</div>

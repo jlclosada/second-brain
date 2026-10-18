@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, CheckSquare, ExternalLink, Mail, MailOpen, Plug, Star } from "lucide-react";
+import { Archive, CheckSquare, ExternalLink, Mail, MailOpen, Plug, Sparkles, Star } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ export function EmailRow({ email, dense }: { email: Email; dense?: boolean }) {
   const refresh = useInboxRefresh();
   const [busy, setBusy] = useState<string | null>(null);
   const sender = email.sender_name || email.sender_email || "Desconocido";
+  const go = useGo();
 
   const run = async (what: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(what);
@@ -60,6 +61,16 @@ export function EmailRow({ email, dense }: { email: Email; dense?: boolean }) {
           {!dense && <p className="line-clamp-2 text-sm text-muted">{email.snippet}</p>}
         </a>
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-cobalt"
+            onClick={() =>
+              go(`/?q=${encodeURIComponent(`Lee el correo «${email.subject}» de ${sender} (id ${email.id}) y redáctame una respuesta.`)}`, "nav-forward")
+            }
+          >
+            <Sparkles size={14} /> Responder con Jarvis
+          </Button>
           {email.task_id ? (
             <span className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-sm text-moss">
               <CheckSquare size={14} /> En tus tareas

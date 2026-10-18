@@ -65,7 +65,6 @@ export default function SearchPage() {
             { value: "note", label: "Notas" },
             { value: "task", label: "Tareas" },
             { value: "event", label: "Eventos" },
-            { value: "vault", label: "Memoria" },
             { value: "email", label: "Correos" },
           ]}
         />
@@ -85,7 +84,7 @@ export default function SearchPage() {
               const k = KIND[h.item.kind];
               return (
                 <li key={h.item.id} className="border-t border-line">
-                  <GoLink to={itemPath(h.item.kind, h.item.id)} className="group flex gap-4 py-4">
+                  <GoLink to={itemPath(h.item.kind, h.item.id, h.item.title)} className="group flex gap-4 py-4">
                     <k.icon size={19} className="mt-0.5 shrink-0 text-faint" />
                     <div className="min-w-0">
                       <p className="font-medium group-hover:text-cobalt">{h.item.title}</p>

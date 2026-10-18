@@ -31,7 +31,7 @@ def _calendar_out(db: Session, cal: Calendar) -> CalendarOut:
 def list_calendars(db: Session = Depends(get_db)):
     default_calendar(db)
     db.commit()
-    order = (Calendar.source != "google", Calendar.primary.desc(), Calendar.created_at)
+    order = (Calendar.source.notin_(("google", "icloud")), Calendar.source, Calendar.primary.desc(), Calendar.created_at)
     return [_calendar_out(db, c) for c in db.scalars(select(Calendar).order_by(*order))]
 
 
@@ -65,6 +65,8 @@ def update_calendar(cal_id: uuid.UUID, body: CalendarUpdate, db: Session = Depen
 def _schedule(db: Session, cal: Calendar) -> None:
     if cal.source == "google":
         enqueue(db, "sync_google_calendar", {"calendar_id": str(cal.id)}, dedupe=True, max_attempts=1)
+    elif cal.source == "icloud":
+        enqueue(db, "sync_icloud", {}, dedupe=True, max_attempts=1)
     else:
         schedule_sync(db, cal)
 
@@ -84,8 +86,8 @@ def delete_calendar(cal_id: uuid.UUID, db: Session = Depends(get_db)):
     cal = db.get(Calendar, cal_id)
     if cal is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Calendario no encontrado")
-    if cal.source == "google":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Los calendarios de Google se ocultan, no se borran desde aquí")
+    if cal.source in ("google", "icloud"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Los calendarios conectados se ocultan, no se borran desde aquí")
     if cal.source == "local" and db.scalar(select(func.count()).select_from(Calendar).where(Calendar.source == "local")) <= 1:
         raise HTTPException(status.HTTP_409_CONFLICT, "Necesitas al menos un calendario propio")
     # Los elementos de sus eventos se borran con ellos.

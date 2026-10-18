@@ -44,7 +44,7 @@ def test_stream_shows_text_and_actions_live(client, brain_dirs, monkeypatch):  #
     assert kinds[0] == "start" and kinds[-1] == "done"
     assert "".join(e["delta"] for e in events if e["type"] == "text") == "Listo, lo he guardado en tu Bandeja."
     action = next(e["action"] for e in events if e["type"] == "action")
-    assert action["tool"] == "crear_nota" and action["link"].startswith("/memoria?nota=00-Bandeja")
+    assert action["tool"] == "crear_nota" and action["link"].startswith("obsidian://open?vault=Segundo-Cerebro&file=00-Bandeja")
     assert any("Kioto" in p.read_text() for p in (brain_dirs[0] / "00-Bandeja").glob("*.md"))
 
     conv_id = events[-1]["conversation_id"]

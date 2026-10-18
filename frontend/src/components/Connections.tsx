@@ -149,7 +149,7 @@ function GoogleCalendars() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const refresh = useRefreshAll();
   const google = calendars.data?.filter((c) => c.source === "google") ?? [];
-  const writable = calendars.data?.filter((c) => c.enabled && (c.source === "local" || (c.source === "google" && c.writable))) ?? [];
+  const writable = calendars.data?.filter((c) => c.enabled && (c.source === "local" || ((c.source === "google" || c.source === "icloud") && c.writable))) ?? [];
   if (!google.length) return <p className="text-sm text-muted">Trayendo tus calendarios…</p>;
 
   const setDefault = async (value: string) => {
@@ -193,7 +193,7 @@ function GoogleCalendars() {
             <option value="">Automático (el principal de Google)</option>
             {writable.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.source === "google" ? `${c.name} (Google)` : `${c.name} (solo en esta app)`}
+                {c.source === "google" ? `${c.name} (Google)` : c.source === "icloud" ? `${c.name} (iPhone)` : `${c.name} (solo en esta app)`}
               </option>
             ))}
           </Select>
@@ -359,8 +359,14 @@ function GitHubCard({ github }: { github: Integration }) {
       ) : (
         <form onSubmit={connect} className="flex flex-col gap-3">
           <p className="text-sm text-muted">
-            Crea un <Ext href="https://github.com/settings/tokens/new?description=Segundo%20cerebro&scopes=repo">token de acceso</Ext> con el permiso{" "}
-            <b>repo</b> (para ver también los repositorios privados) y pégalo aquí. Solo se usa para leer; se guarda cifrado.
+            Lo más fácil, si usas <code className="mono">gh</code> en este ordenador: ejecuta en una terminal
+          </p>
+          <pre className="mono overflow-x-auto rounded-xl bg-white/[0.04] px-3 py-2 text-xs">
+            echo "GITHUB_TOKEN=$(gh auth token)" &gt;&gt; ~/Code/second-brain/.env && cd ~/Code/second-brain && docker compose up -d
+          </pre>
+          <p className="text-sm text-muted">
+            O crea un <Ext href="https://github.com/settings/tokens/new?description=Jarvis&scopes=repo">token de acceso</Ext> con el permiso <b>repo</b> y
+            pégalo aquí. Solo se usa para leer; se guarda cifrado.
           </p>
           <div className="flex gap-2">
             <Input
@@ -382,6 +388,103 @@ function GitHubCard({ github }: { github: Integration }) {
   );
 }
 
+function ICloudCard({ icloud }: { icloud: Integration }) {
+  const refresh = useRefreshAll();
+  const [form, setForm] = useState({ apple_id: "", password: "" });
+  const [saving, setSaving] = useState(false);
+  const connect = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await api.icloudConnect(form.apple_id, form.password);
+      setForm({ apple_id: "", password: "" });
+      refresh();
+      toast.success("iCloud conectado. Trayendo los calendarios del iPhone…");
+      setTimeout(refresh, 5000);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const ok = icloud.connected && icloud.status !== "reconnect";
+  const status = ok ? (
+    <span>
+      <StatusDot tone="ok" />
+      Conectado como {icloud.account}
+    </span>
+  ) : icloud.connected ? (
+    <span className="text-clay">
+      <StatusDot tone="bad" />
+      Apple ya no acepta la contraseña de app
+    </span>
+  ) : (
+    <span>
+      <StatusDot tone="off" />
+      Sin conectar
+    </span>
+  );
+  return (
+    <Card icon={<CalendarDays size={19} />} title="Calendario del iPhone (iCloud)" status={status}>
+      {ok ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-muted">
+            Tus calendarios de iCloud aparecen en Agenda y puedes crear eventos en ellos. Los que se repiten se editan en el iPhone.
+            {icloud.state.synced_at && ` Sincronizado ${ago(icloud.state.synced_at)}.`}
+          </p>
+          {icloud.error && <p className="text-sm text-clay">{icloud.error}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => api.syncIntegration("icloud").then(() => setTimeout(refresh, 4000))}>
+              <RefreshCw size={15} /> Sincronizar ahora
+            </Button>
+            <Button variant="danger" onClick={() => confirm("¿Desconectar iCloud? En el iPhone no se borra nada.") && api.icloudDisconnect().then(refresh)}>
+              Desconectar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={connect} className="flex flex-col gap-3">
+          <p className="text-sm text-muted">
+            Apple no permite «iniciar sesión con Apple» para el calendario, así que se usa una contraseña de app (no la de tu Apple ID). Créala en{" "}
+            <Ext href="https://account.apple.com/account/manage/section/security">tu cuenta de Apple</Ext> → Contraseñas de apps → «+», llámala «Jarvis» y
+            pégala aquí. Se guarda cifrada y puedes revocarla allí cuando quieras.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Apple ID">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="email"
+                  value={form.apple_id}
+                  onChange={(e) => setForm({ ...form, apple_id: e.target.value })}
+                  placeholder="tu@icloud.com"
+                  required
+                />
+              )}
+            </Field>
+            <Field label="Contraseña de app">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder="xxxx-xxxx-xxxx-xxxx"
+                  autoComplete="off"
+                  required
+                />
+              )}
+            </Field>
+          </div>
+          <Button type="submit" variant="primary" disabled={saving} className="self-start">
+            {saving ? "Conectando…" : "Conectar iCloud"}
+          </Button>
+        </form>
+      )}
+    </Card>
+  );
+}
+
 export default function Connections() {
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: api.integrations, refetchInterval: 15_000 });
   if (integrations.isPending) return <Loading />;
@@ -389,6 +492,7 @@ export default function Connections() {
   return (
     <div className="flex flex-col gap-5">
       <GoogleCard google={integrations.data.google} />
+      <ICloudCard icloud={integrations.data.icloud} />
       <GitHubCard github={integrations.data.github} />
     </div>
   );

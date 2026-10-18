@@ -83,7 +83,7 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
   };
 
   // Donde se puede escribir: los propios y los de Google con permiso de edición.
-  const writable = calendars.data?.filter((c) => c.enabled && (c.source === "local" || (c.source === "google" && c.writable))) ?? [];
+  const writable = calendars.data?.filter((c) => c.enabled && (c.source === "local" || ((c.source === "google" || c.source === "icloud") && c.writable))) ?? [];
   const preferred =
     writable.find((c) => c.id === me.data?.prefs.default_calendar_id) ?? writable.find((c) => c.source === "google" && c.primary) ?? writable[0];
   const canPickCalendar = isNew ? writable.length > 1 : form?.source === "local" && writable.filter((c) => c.source === "local").length > 1;
@@ -106,7 +106,7 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
           rel="noreferrer"
           className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-sm hover:bg-sunken"
         >
-          <ExternalLink size={15} /> Abrir en Google Calendar
+          <ExternalLink size={15} /> Abrir en el calendario
         </a>
       )}
     </div>
@@ -128,7 +128,11 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
             )}
             {links}
             {form.description && <p className="whitespace-pre-wrap text-sm text-muted">{form.description}</p>}
-            <p className="text-sm text-faint">Viene de un calendario de solo lectura. Para cambiarlo, edítalo en el original.</p>
+            <p className="text-sm text-faint">
+              {form.source === "icloud"
+                ? "Es un evento que se repite: edítalo en el iPhone."
+                : "Viene de un calendario de solo lectura. Para cambiarlo, edítalo en el original."}
+            </p>
           </div>
         ) : (
           <form onSubmit={save} className="flex flex-col gap-4">
@@ -198,7 +202,7 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
                   <Select id={id} value={form.calendar_id ?? preferred?.id} onChange={(e) => set({ calendar_id: e.target.value })}>
                     {(isNew ? writable : writable.filter((c) => c.source === "local")).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.source === "google" ? `${c.name} (Google)` : c.name}
+                        {c.source === "google" ? `${c.name} (Google)` : c.source === "icloud" ? `${c.name} (iPhone)` : c.name}
                       </option>
                     ))}
                   </Select>

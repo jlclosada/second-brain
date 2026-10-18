@@ -5,13 +5,17 @@ Se habla con las APIs REST directamente con httpx. Los tokens se guardan
 cifrados en `integrations` y se renuevan solos con el refresh token.
 """
 
+import base64
 import colorsys
 import json
 import logging
+import re
 import secrets
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
+from email.message import EmailMessage
 from email.utils import parseaddr
+from html import unescape
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -394,6 +398,99 @@ def mark_read(db: Session, email: Email, read: bool = True) -> None:
         else:
             _modify_thread(g, email.thread_id, add=["UNREAD"])
     email.unread = not read
+
+
+def _decode(data: str) -> str:
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="replace")
+
+
+def _body_text(payload: dict) -> str:
+    """El texto de un mensaje: text/plain si lo hay; si no, el HTML sin etiquetas."""
+    plain, html = [], []
+
+    def walk(part: dict) -> None:
+        mime = part.get("mimeType", "")
+        data = (part.get("body") or {}).get("data")
+        if data and mime == "text/plain":
+            plain.append(_decode(data))
+        elif data and mime == "text/html":
+            html.append(_decode(data))
+        for sub in part.get("parts") or []:
+            walk(sub)
+
+    walk(payload)
+    if plain:
+        text = "\n".join(plain)
+    else:
+        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", "\n".join(html), flags=re.S | re.I)
+        text = unescape(re.sub(r"<br\s*/?>|</p>|</div>", "\n", text, flags=re.I))
+        text = re.sub(r"<[^>]+>", " ", text)
+    # Sin las citas del correo anterior («> …» y «El … escribió:»), que repiten el hilo.
+    text = re.split(r"\n(?:El .{5,120} escribió:|On .{5,120} wrote:)\s*\n", text)[0]
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith(">")]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def read_thread(db: Session, email: Email) -> dict:
+    """El hilo entero, mensaje a mensaje, para que Jarvis lo lea."""
+    row = integration(db)
+    with Google(db) as g:
+        thread = g.json("GET", f"{GMAIL}/threads/{email.thread_id}", params={"format": "full"})
+    messages = []
+    for m in thread.get("messages", []):
+        h = _headers(m)
+        messages.append({
+            "de": h.get("from", ""), "para": h.get("to", ""),
+            "fecha": datetime.fromtimestamp(int(m.get("internalDate", "0")) / 1000, UTC).isoformat(),
+            "texto": _body_text(m.get("payload", {}))[:6000],
+        })
+    return {"id": str(email.item_id), "asunto": email.item.title, "mensajes": messages[-8:],
+            "url": gmail_link(email.thread_id, row.account if row else None)}
+
+
+def _reply_mime(db: Session, g: "Google", email: Email, body: str) -> tuple[dict, str, str]:
+    """El mensaje de respuesta (MIME en base64url) con las cabeceras para que Gmail lo enhebre."""
+    thread = g.json("GET", f"{GMAIL}/threads/{email.thread_id}", params={
+        "format": "metadata", "metadataHeaders": ["From", "To", "Reply-To", "Subject", "Message-ID", "References"],
+    })
+    messages = thread.get("messages") or []
+    if not messages:
+        raise GoogleError("El hilo está vacío")
+    received = [m for m in messages if "SENT" not in m.get("labelIds", [])] or messages
+    last = _headers(received[-1])
+    to = last.get("reply-to") or last.get("from") or ""
+    subject = _headers(messages[0]).get("subject") or email.item.title
+    if not subject.lower().startswith(("re:", "re :")):
+        subject = f"Re: {subject}"
+    msg = EmailMessage()
+    msg["To"] = to
+    me = integration(db).account
+    if me:
+        msg["From"] = me
+    msg["Subject"] = subject
+    if last.get("message-id"):
+        msg["In-Reply-To"] = last["message-id"]
+        msg["References"] = f"{last.get('references', '')} {last['message-id']}".strip()
+    msg.set_content(body)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    return {"raw": raw, "threadId": email.thread_id}, parseaddr(to)[1] or to, subject
+
+
+def create_reply_draft(db: Session, email: Email, body: str) -> dict:
+    with Google(db) as g:
+        message, to, subject = _reply_mime(db, g, email, body)
+        data = g.json("POST", f"{GMAIL}/drafts", json={"message": message})
+    return {"draft_id": data["id"], "to": to, "subject": subject,
+            "url": "https://mail.google.com/mail/#drafts"}
+
+
+def send_draft(db: Session, draft_id: str, email: Email | None = None, body: str | None = None) -> None:
+    """Envía un borrador. Si llega el texto editado, primero se actualiza el borrador."""
+    with Google(db) as g:
+        if body is not None and email is not None:
+            message, _, _ = _reply_mime(db, g, email, body)
+            g.json("PUT", f"{GMAIL}/drafts/{draft_id}", json={"id": draft_id, "message": message})
+        g.json("POST", f"{GMAIL}/drafts/send", json={"id": draft_id})
 
 
 # --- Google Calendar -----------------------------------------------------------------

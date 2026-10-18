@@ -46,7 +46,7 @@ def event_alerts(db: Session, now: datetime, default_minutes: int) -> None:
         if occ.event.all_day:
             continue
         minutes = occ.event.remind_minutes
-        if minutes is None and occ.calendar.source in ("ics", "google"):
+        if minutes is None and occ.calendar.source in ("ics", "google", "icloud"):
             minutes = default_minutes
         if minutes is None:
             continue
@@ -124,8 +124,10 @@ def memory_sync(db: Session, now: datetime) -> None:
 def integrations_sync(db: Session, now: datetime) -> None:
     from app.services.github import schedule_github_sync
     from app.services.google import schedule_google_sync
+    from app.services.icloud import schedule_icloud_sync
 
     schedule_google_sync(db, now)
+    schedule_icloud_sync(db, now)
     schedule_github_sync(db, now)
     db.commit()
 

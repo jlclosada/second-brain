@@ -264,3 +264,8 @@ def test_capture_kind_override(client):
     assert r["kind"] == "event" and r["all_day"] and r["created_id"]
     r = client.post("/api/capture", json={"text": "el código del trastero es 4512", "kind": "note"}).json()
     assert r["kind"] == "note" and "4512" in r["body"]
+
+
+def test_appointment_called_task_goes_to_calendar(client):
+    r = client.post("/api/capture", json={"text": "Tarea dentista a las 10", "commit": False}).json()
+    assert r["kind"] == "event" and r["starts_at"]

@@ -7,16 +7,15 @@ import uuid
 from collections.abc import Iterator
 from datetime import date, datetime, time
 from typing import Any
-from urllib.parse import quote
 
 import anthropic
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Chunk, Conversation, Item, Task
+from app.models import Chunk, Conversation, Email, Item, Task
 from app.schemas import ChatAction, ChatMessage, EventIn, NoteIn, ReminderIn, TaskIn
-from app.services import brain, vault
+from app.services import brain, google, vault
 from app.services.calendar import events_between, local_day_bounds
 from app.services.search import search
 
@@ -36,8 +35,13 @@ Cómo trabajas:
 - Antes de responder sobre su vida, documentos o agenda, consulta con las herramientas. No supongas.
 - Busca primero en su memoria (buscar) y lee las notas relevantes (leer_nota) antes de opinar.
 - Cuando uses información de algo, nómbralo por su título para que pueda abrirlo.
-- Actúas cuando te lo pide o cuando es claramente lo que quiere: crear tareas, eventos (van a Google
-  Calendar), recordatorios, notas en el vault, apuntes en el diario. Dilo en una frase al terminar.
+- Actúas cuando te lo pide o cuando es claramente lo que quiere, sin pedir confirmación para cosas
+  reversibles: crear tareas, eventos, recordatorios, notas en el vault, apuntes en el diario. Dilo en una
+  frase al terminar.
+- Todo lo que tenga día y hora (dentista, médico, reunión, llamada, cena…) es un EVENTO del calendario,
+  aunque lo llame "tarea". Si no dice cuánto dura, una hora. Las tareas son para cosas por hacer sin cita.
+- Correo: puedes leer hilos (leer_correo) y redactar respuestas (redactar_respuesta). Nunca envías: dejas
+  el borrador y dices que lo revise y pulse Enviar. Si no está claro qué correo es, mira correo_pendiente.
 - En el vault sigues sus reglas: lo nuevo va a la Bandeja, el diario es 05-Diario/AAAA-MM-DD, se enlaza
   con [[wikilinks]] y nunca se borra nada.
 - Las fechas relativas ("el martes", "mañana") se calculan desde el momento indicado en cada mensaje.
@@ -69,23 +73,30 @@ TOOLS = [
     _tool("buscar", "Busca en todo el segundo cerebro (documentos, notas, tareas, eventos y correos) por palabras y "
           "significado. Devuelve los elementos más relevantes con un fragmento.",
           {"consulta": _S,
-           "tipo": {"type": ["string", "null"], "enum": ["document", "note", "task", "event", "email", "vault", None]}},
+           "tipo": {"anyOf": [{"type": "string", "enum": ["document", "task", "event", "email", "vault"]},
+                              {"type": "null"}]}},
           ["consulta", "tipo"]),
     _tool("leer_nota", "Lee una nota del vault de Obsidian por su título (como en un [[wikilink]]) o su ruta.",
           {"nota": _S}, ["nota"]),
     _tool("correo_pendiente", "Correos de la bandeja de entrada de Gmail que requieren atención (sin leer, importantes "
-          "o destacados en Principal), del más reciente al más antiguo.", {}, []),
+          "o destacados en Principal), del más reciente al más antiguo. Cada uno con su id.", {}, []),
+    _tool("leer_correo", "Lee entero un hilo de correo de la bandeja (todos sus mensajes) por su id.", {"id": _S}, ["id"]),
+    _tool("redactar_respuesta", "Redacta una respuesta a un hilo de correo y la deja como BORRADOR en Gmail. No la envía: "
+          "la persona la revisa y pulsa Enviar en la interfaz. Escribe el cuerpo completo, con saludo y despedida, en "
+          "el tono del hilo y firmando como José Luis.", {"id": _S, "texto": _S}, ["id", "texto"]),
     _tool("ver_elemento", "Lee el contenido completo de un elemento por su id (texto del documento, cuerpo de la nota…).",
           {"id": _S}, ["id"]),
     _tool("agenda", "Eventos y tareas con fecha entre dos días (ambos incluidos). Fechas AAAA-MM-DD.",
           {"desde": _S, "hasta": _S}, ["desde", "hasta"]),
     _tool("tareas_pendientes", "Lista las tareas sin completar: vencidas, para hoy y próximas.", {}, []),
-    _tool("crear_tarea", "Crea una tarea. Fecha AAAA-MM-DD y hora HH:MM opcionales. Prioridad 0-3.",
+    _tool("crear_tarea", "Crea una tarea (algo que hacer, sin cita a una hora). Si tiene hora concreta de cita, usa "
+          "crear_evento. Fecha AAAA-MM-DD y hora HH:MM opcionales. Prioridad 0-3.",
           {"titulo": _S, "fecha": _NS, "hora": _NS, "prioridad": {"type": "integer"}, "notas": _NS},
           ["titulo", "fecha", "hora", "prioridad", "notas"]),
     _tool("completar_tarea", "Marca una tarea como hecha por su id.", {"id": _S}, ["id"]),
-    _tool("crear_evento", "Crea un evento en el calendario. inicio y fin en AAAA-MM-DDTHH:MM (hora local) o "
-          "AAAA-MM-DD si es de día completo.",
+    _tool("crear_evento", "Crea un evento en su calendario (Google Calendar, se ve también en el móvil). Úsalo para "
+          "TODO lo que tenga día y hora: citas, médico, dentista, reuniones, llamadas, quedadas. inicio y fin en "
+          "AAAA-MM-DDTHH:MM (hora local) o AAAA-MM-DD si es de día completo.",
           {"titulo": _S, "inicio": _S, "fin": _NS, "dia_completo": {"type": "boolean"}, "lugar": _NS,
            "aviso_minutos": {"type": ["integer", "null"]}},
           ["titulo", "inicio", "fin", "dia_completo", "lugar", "aviso_minutos"]),
@@ -104,7 +115,7 @@ _LINKS = {"document": "/documentos/{id}", "note": "/notas/{id}", "task": "/tarea
 
 def _link(item: Item) -> str:
     if item.kind == "vault" and item.vault_note:
-        return f"/memoria?nota={quote(item.vault_note.path)}"
+        return vault.obsidian_url(item.vault_note.path)
     return _LINKS.get(item.kind, "/").format(id=item.id)
 
 
@@ -186,6 +197,28 @@ class Toolbox:
         return [{"id": str(e.item_id), "asunto": e.item.title, "de": e.sender_name or e.sender_email,
                  "recibido": _fmt_dt(e.received_at), "extracto": e.snippet, "sin_leer": e.unread} for e in emails]
 
+    def t_leer_correo(self, id: str) -> dict:
+        email = self.db.get(Email, uuid.UUID(id))
+        if email is None:
+            return {"error": "Ese correo ya no está en la bandeja"}
+        thread = google.read_thread(self.db, email)
+        self.actions.append(ChatAction(tool="leer_correo", summary=f"Leyó «{email.item.title}»", link=thread["url"]))
+        return thread
+
+    def t_redactar_respuesta(self, id: str, texto: str) -> dict:
+        email = self.db.get(Email, uuid.UUID(id))
+        if email is None:
+            return {"error": "Ese correo ya no está en la bandeja"}
+        draft = google.create_reply_draft(self.db, email, texto)
+        self.db.commit()
+        self.actions.append(ChatAction(
+            tool="redactar_respuesta", summary=f"Borrador de respuesta a {draft['to']}", link=draft["url"],
+            data={"draft_id": draft["draft_id"], "to": draft["to"], "subject": draft["subject"], "body": texto,
+                  "email_id": id},
+        ))
+        return {"ok": True, "borrador": draft["draft_id"], "para": draft["to"],
+                "nota": "Queda como borrador; la persona lo envía desde la interfaz."}
+
     def t_tareas_pendientes(self) -> list[dict]:
         rows = self.db.execute(
             select(Task, Item).join(Item, Item.id == Task.item_id).where(Task.done_at.is_(None))
@@ -225,14 +258,14 @@ class Toolbox:
         if note is None:
             return {"error": f"No hay ninguna nota «{nota}» en el vault"}
         self.actions.append(ChatAction(tool="leer_nota", summary=f"Leyó «{note.item.title}»",
-                                       link=f"/memoria?nota={quote(note.path)}"))
+                                       link=vault.obsidian_url(note.path)))
         return {"ruta": note.path, "titulo": note.item.title, "frontmatter": note.frontmatter, "contenido": note.body[:15000]}
 
     def t_crear_nota(self, titulo: str, contenido: str):
         if vault.root() is not None:
             path = vault.capture(self.db, titulo, contenido)
             self.actions.append(ChatAction(tool="crear_nota", summary=f"Guardó «{titulo}» en la Bandeja del vault",
-                                           link=f"/memoria?nota={quote(path)}"))
+                                           link=vault.obsidian_url(path)))
             return {"ruta": path, "ok": True}
         item = brain.create_note(self.db, NoteIn(title=titulo, body=contenido))
         self.actions.append(ChatAction(tool="crear_nota", summary=f"Guardó la nota «{item.title}»", link=_link(item)))
@@ -249,7 +282,7 @@ class Toolbox:
         if vault.root() is not None:
             path = vault.append_daily(self.db, texto, seccion or "Notas y capturas", today)
             self.actions.append(ChatAction(tool="escribir_en_diario", summary="Apuntó en el diario de hoy",
-                                           link=f"/memoria?nota={quote(path)}"))
+                                           link=vault.obsidian_url(path)))
             return {"ok": True, "ruta": path}
         item = brain.journal_for(self.db, today, create=True)
         body = (item.note.body.rstrip() + "\n\n" + texto.strip()).strip()

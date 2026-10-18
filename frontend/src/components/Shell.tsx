@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Brain, CalendarDays, CheckSquare, Inbox, Plus, Search, Settings, Sparkles } from "lucide-react";
+import { Bell, CalendarDays, CheckSquare, Inbox, Plus, Search, Settings, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -10,20 +10,19 @@ import CommandPalette from "./CommandPalette";
 import Notifications from "./Notifications";
 import { cx } from "./ui";
 
-// Cinco sitios, siempre los mismos:
+// Cuatro sitios, siempre los mismos:
 //   Jarvis   hablarle y ver tu día de un vistazo
 //   Agenda   tu calendario (Google y propio)
 //   Tareas   lo que tienes que hacer (también de GitHub y del correo)
 //   Correo   lo de Gmail que requiere respuesta
-//   Memoria  tu vault de Obsidian, tus documentos y lo que Jarvis ha archivado
+// Tu memoria (el vault de Obsidian y los documentos) no se navega: se le pregunta a Jarvis.
 type NavItem = { to: string; label: string; icon: typeof Sparkles; end?: boolean; match?: string[] };
 
 const NAV: NavItem[] = [
-  { to: "/", label: "Jarvis", icon: Sparkles, end: true, match: ["/hoy"] },
+  { to: "/", label: "Jarvis", icon: Sparkles, end: true, match: ["/hoy", "/documentos", "/notas", "/diario", "/proyectos", "/buscar"] },
   { to: "/calendario", label: "Agenda", icon: CalendarDays },
   { to: "/tareas", label: "Tareas", icon: CheckSquare },
   { to: "/bandeja", label: "Correo", icon: Inbox },
-  { to: "/memoria", label: "Memoria", icon: Brain, match: ["/documentos", "/notas", "/diario", "/proyectos", "/buscar"] },
 ];
 
 export function BrandMark({ size = 28 }: { size?: number }) {
@@ -207,7 +206,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       {/* Dock (móvil) */}
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
-        <nav aria-label="Secciones" className="glass pointer-events-auto mx-auto flex max-w-md items-stretch rounded-[1.6rem] px-1">
+        <nav aria-label="Secciones" className="glass pointer-events-auto mx-auto flex max-w-sm items-stretch rounded-[1.6rem] px-1">
           {NAV.map((n) => (
             <DockLink key={n.to} item={n} badge={n.to === "/bandeja" ? attention : undefined} />
           ))}

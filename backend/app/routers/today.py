@@ -65,7 +65,7 @@ def today(db: Session = Depends(get_db), settings: Settings = Depends(get_settin
     g = db.get(Integration, "google")
     gh = db.get(Integration, "github")
     connections = {
-        "google": _status(g), "github": _status(gh),
+        "google": _status(g), "github": _status(gh), "icloud": _status(db.get(Integration, "icloud")),
         "google_configured": "yes" if google.client_config(db) else "no",
     }
     inbox = None

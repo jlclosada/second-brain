@@ -148,7 +148,7 @@ function CalendarsBlock() {
       ) : (
         <ul className="mb-6 divide-y divide-line rounded-xl border border-line bg-surface">
           {calendars.data
-            ?.filter((c) => c.source !== "google")
+            ?.filter((c) => c.source !== "google" && c.source !== "icloud")
             .map((c) => (
               <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                 <span className="size-3 rounded-full" style={{ background: colorVar(c.color) }} />
@@ -314,6 +314,9 @@ function SecurityBlock() {
     google_client_saved: "Credenciales de Google guardadas",
     github_connected: "GitHub conectado",
     github_disconnected: "GitHub desconectado",
+    icloud_connected: "iCloud conectado",
+    icloud_disconnected: "iCloud desconectado",
+    email_sent: "Correo enviado por Jarvis",
     feed_rotated: "Enlace de calendario renovado",
   };
 
@@ -487,7 +490,7 @@ export default function SettingsPage() {
           <Block
             id="conexiones"
             title="Tus cuentas"
-            intro="Conecta Google para tener aquí tu correo y tu calendario, y GitHub para tus revisiones e issues. Todo se sincroniza solo cada pocos minutos."
+            intro="Google (correo y calendario), el calendario del iPhone y GitHub. Todo se sincroniza solo cada pocos minutos."
           >
             <Connections />
           </Block>

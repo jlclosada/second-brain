@@ -8,6 +8,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -26,7 +27,7 @@ from app.schemas import (
     TaskOut,
 )
 from app.security import audit, current_session, require_user
-from app.services import brain, github, google
+from app.services import brain, github, google, icloud
 from app.services.jobs import enqueue
 
 router = APIRouter(prefix="/api", tags=["integrations"], dependencies=[Depends(require_user)])
@@ -56,7 +57,8 @@ def integrations(request: Request, db: Session = Depends(get_db)):
         redirect_uri=google.redirect_uri(_base_url(request)),
         client_from_env=bool(settings.google_client_id and settings.google_client_secret),
     )
-    return IntegrationsOut(google=google_out, github=_out(db.get(Integration, "github"), "github"))
+    return IntegrationsOut(google=google_out, github=_out(db.get(Integration, "github"), "github"),
+                           icloud=_out(db.get(Integration, "icloud"), "icloud"))
 
 
 # --- Google -----------------------------------------------------------------
@@ -120,16 +122,44 @@ def google_disconnect(request: Request, forget_app: bool = False, db: Session = 
 
 
 @router.post("/integrations/{provider}/sync", status_code=status.HTTP_202_ACCEPTED)
-def sync_now(provider: Literal["google", "github"], db: Session = Depends(get_db)):
+def sync_now(provider: Literal["google", "github", "icloud"], db: Session = Depends(get_db)):
     row = db.get(Integration, provider)
     if row is None or not row.secret_encrypted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No está conectado")
     if provider == "google":
         google.schedule_google_sync(db, force=True)
+    elif provider == "icloud":
+        enqueue(db, "sync_icloud", {}, dedupe=True, max_attempts=1)
     else:
         enqueue(db, "sync_github", {}, dedupe=True, max_attempts=1)
     db.commit()
     return {"queued": True}
+
+
+# --- iCloud (calendario del iPhone) ----------------------------------------------
+
+class ICloudIn(BaseModel):
+    apple_id: str = Field(min_length=3, max_length=200)
+    password: str = Field(min_length=8, max_length=100)
+
+
+@router.put("/integrations/icloud", response_model=IntegrationOut)
+def icloud_connect(body: ICloudIn, request: Request, db: Session = Depends(get_db)):
+    try:
+        row = icloud.connect(db, body.apple_id, body.password)
+    except (icloud.ICloudError, httpx.HTTPError) as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc) or "No se pudo conectar con iCloud") from None
+    db.commit()
+    audit(db, "icloud_connected", request, account=row.account)
+    return _out(row, "icloud")
+
+
+@router.delete("/integrations/icloud", status_code=status.HTTP_204_NO_CONTENT)
+def icloud_disconnect(request: Request, db: Session = Depends(get_db)):
+    icloud.disconnect(db)
+    db.commit()
+    audit(db, "icloud_disconnected", request)
 
 
 # --- GitHub -----------------------------------------------------------------
@@ -245,7 +275,9 @@ def to_task(item_id: uuid.UUID, body: EmailToTask, db: Session = Depends(get_db)
     row = db.get(Integration, "google")
     url = google.gmail_link(email.thread_id, row.account if row else None)
     sender = email.sender_name or email.sender_email or "alguien"
-    due = body.due_date.astimezone(get_settings().tz).date() if body.due_date else None
+    # Por defecto para hoy: si no, quedaría escondida entre las tareas sin fecha.
+    tz = get_settings().tz
+    due = body.due_date.astimezone(tz).date() if body.due_date else datetime.now(tz).date()
     task_item = brain.create_task(db, TaskIn(
         title=f"Responder a {sender}: {email.item.title}"[:300],
         notes=f"Correo de {sender} ({email.sender_email or ''}):\n\n{email.snippet}",
@@ -260,6 +292,23 @@ def to_task(item_id: uuid.UUID, body: EmailToTask, db: Session = Depends(get_db)
         _google_call(lambda: google.archive_email(db, email))
     db.commit()
     return brain.task_out(task_item)
+
+
+class DraftSend(BaseModel):
+    email_id: uuid.UUID | None = None
+    # Si se editó en la interfaz, el texto final; si no, se envía tal cual está en Gmail.
+    body: str | None = Field(default=None, max_length=50000)
+
+
+@router.post("/inbox/drafts/{draft_id}/send", status_code=status.HTTP_204_NO_CONTENT)
+def send_draft(draft_id: str, body: DraftSend, request: Request, db: Session = Depends(get_db)):
+    """Enviar una respuesta que redactó Jarvis. Solo ocurre con este clic."""
+    email = db.get(Email, body.email_id) if body.email_id else None
+    _google_call(lambda: google.send_draft(db, draft_id, email, body.body))
+    if email is not None:
+        email.unread = False
+    db.commit()
+    audit(db, "email_sent", request, draft=draft_id)
 
 
 def task_from_github(db: Session) -> dict[str, list[TaskOut]]:

@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { differenceInMinutes, parseISO } from "date-fns";
 import {
   ArrowUp,
+  Check,
   CalendarDays,
   CheckSquare,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Mic,
   MicOff,
   Plus,
+  Send,
   Sparkles,
   Square,
   Video,
@@ -50,10 +52,12 @@ const TOOL_LABEL: Record<string, string> = {
   crear_evento: "Añadiendo a tu calendario",
   crear_nota: "Guardando en tu vault",
   crear_recordatorio: "Programando el aviso",
+  leer_correo: "Leyendo el correo",
+  redactar_respuesta: "Redactando la respuesta",
   escribir_en_diario: "Escribiendo en tu diario",
 };
 
-const SUGGESTIONS = ["¿Qué tengo hoy?", "Resume los correos que debo contestar", "¿Qué hay en mi Bandeja de Obsidian?", "¿Cuándo vence el seguro del coche?"];
+const SUGGESTIONS = ["¿Qué tengo hoy?", "Resume los correos que debo contestar", "Ponme el dentista el jueves a las 10", "¿Qué tengo pendiente en Verifactu?"];
 
 const STORE = "jarvis:conversacion";
 const load = (): { id?: string; messages: Message[] } => {
@@ -82,9 +86,14 @@ function ActionChip({ action, i }: { action: ChatAction; i: number }) {
     </>
   );
   const cls = "glass inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1 text-[0.8rem] text-muted transition-colors hover:text-ink";
+  const external = action.link && /^(https?:|obsidian:)/.test(action.link);
   return (
     <motion.span initial={{ opacity: 0, y: 6, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ delay: i * 0.05 }}>
-      {action.link ? (
+      {action.link && external ? (
+        <a href={action.link} target={action.link.startsWith("http") ? "_blank" : undefined} rel="noreferrer" className={cls}>
+          {body}
+        </a>
+      ) : action.link ? (
         <GoLink to={action.link} className={cls}>
           {body}
         </GoLink>
@@ -92,6 +101,64 @@ function ActionChip({ action, i }: { action: ChatAction; i: number }) {
         <span className={cls}>{body}</span>
       )}
     </motion.span>
+  );
+}
+
+/** La respuesta que redactó Jarvis: la revisas, la cambias si quieres y la envías tú. */
+function DraftCard({ data }: { data: Record<string, string> }) {
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState(data.body ?? "");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const send = async () => {
+    setState("sending");
+    try {
+      await api.sendDraft(data.draft_id, { email_id: data.email_id, body: body !== data.body ? body : undefined });
+      setState("sent");
+      toast.success(`Enviado a ${data.to}`);
+      queryClient.invalidateQueries({ queryKey: ["inbox"] });
+      queryClient.invalidateQueries({ queryKey: ["today"] });
+    } catch (e) {
+      setState("idle");
+      toast.error((e as Error).message);
+    }
+  };
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass mt-3 overflow-hidden rounded-2xl">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-line px-4 py-2.5 text-sm">
+        <span className="eyebrow">Borrador</span>
+        <span className="text-muted">
+          Para <span className="text-ink">{data.to}</span>
+        </span>
+        <span className="min-w-0 truncate text-muted">{data.subject}</span>
+      </div>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        disabled={state !== "idle"}
+        aria-label="Texto de la respuesta"
+        className="block w-full resize-none bg-transparent px-4 py-3 leading-relaxed focus:outline-none focus-visible:outline-none disabled:opacity-70"
+        style={{ fieldSizing: "content", minHeight: "6rem" } as React.CSSProperties}
+      />
+      <div className="flex items-center justify-between gap-2 border-t border-line px-3 py-2">
+        <a href="https://mail.google.com/mail/#drafts" target="_blank" rel="noreferrer" className="px-1 text-xs text-faint hover:text-ink">
+          También está en tus borradores de Gmail
+        </a>
+        {state === "sent" ? (
+          <span className="inline-flex items-center gap-1.5 px-2 text-sm text-moss">
+            <Check size={15} /> Enviado
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={send}
+            disabled={state === "sending" || !body.trim()}
+            className="inline-flex items-center gap-1.5 rounded-full bg-cobalt px-4 py-1.5 text-sm font-medium text-paper disabled:opacity-50"
+          >
+            <Send size={14} /> {state === "sending" ? "Enviando…" : "Enviar"}
+          </button>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
@@ -130,6 +197,11 @@ function Bubble({ m }: { m: Message }) {
             ))}
           </div>
         )}
+        {m.actions
+          .filter((a) => a.tool === "redactar_respuesta" && a.data?.draft_id)
+          .map((a) => (
+            <DraftCard key={a.data!.draft_id} data={a.data!} />
+          ))}
       </div>
     </motion.div>
   );
@@ -573,8 +645,8 @@ export default function JarvisPage() {
             <NowCard events={d.events} onOpen={(e) => setEvent(eventToDraft(e))} />
           </Card>
 
-          <Card title="Memoria" icon={<FolderSync size={15} />} className="md:col-span-3" i={1} action={<SeeAll to="/memoria" label="Abrir" />}>
-            <MemoryCard filedToday={filedToday} />
+          <Card title="Lo que he hecho" icon={<FolderSync size={15} />} className="md:col-span-3" i={1}>
+            <ActivityCard filedToday={filedToday} />
           </Card>
 
           <Card
@@ -647,38 +719,32 @@ export default function JarvisPage() {
   );
 }
 
-function MemoryCard({ filedToday }: { filedToday: number }) {
+function ActivityCard({ filedToday }: { filedToday: number }) {
   const memory = useQuery({ queryKey: ["memory-status"], queryFn: api.memoryStatus, refetchInterval: 20_000 });
   const activity = useQuery({ queryKey: ["activity"], queryFn: () => api.activity(6), refetchInterval: 20_000 });
   const m = memory.data;
   if (!m) return null;
-  if (!m.vault.configured) return <p className="text-muted">Monta tu vault de Obsidian (VAULT_PATH) para que Jarvis lo use como memoria.</p>;
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-2">
-        <Stat value={m.vault.notes} label="notas en el vault" />
-        <Stat value={m.downloads.filed} label="documentos archivados" />
+      <div className="grid grid-cols-2 gap-2">
+        <Stat value={m.downloads.filed} label="documentos de Descargas ordenados" />
         <Stat value={m.downloads.processing} label="leyendo ahora" live={m.downloads.processing > 0} />
       </div>
       <p className="flex items-center gap-2 text-sm text-muted">
         <span className={cx("size-1.5 rounded-full", m.downloads.enabled ? "pulse-dot bg-moss text-moss" : "bg-faint")} />
         {m.downloads.enabled
-          ? `Vigilando Descargas${filedToday ? ` · ${filedToday} archivados hoy` : ""}`
+          ? `Vigilando Descargas${filedToday ? ` · ${filedToday} ordenados hoy` : ""}`
           : m.downloads.waiting_for_ai
             ? "Descargas: esperando la clave de Claude para ordenarla"
             : "Descargas no está conectada"}
       </p>
       {activity.data && activity.data.length > 0 && (
         <ul className="flex flex-col gap-1.5 border-t border-line pt-3">
-          {activity.data.slice(0, 3).map((a) => (
+          {activity.data.slice(0, 4).map((a) => (
             <li key={a.id} className="flex items-baseline gap-2 text-sm">
-              {a.url ? (
-                <GoLink to={a.url} className="min-w-0 flex-1 truncate hover:text-cobalt">
-                  {a.title}
-                </GoLink>
-              ) : (
-                <span className="min-w-0 flex-1 truncate">{a.title}</span>
-              )}
+              <span className="min-w-0 flex-1 truncate" title={a.body ?? undefined}>
+                {a.title}
+              </span>
               <span className="mono shrink-0 text-xs text-faint">{ago(a.at)}</span>
             </li>
           ))}

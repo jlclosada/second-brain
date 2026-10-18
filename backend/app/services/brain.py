@@ -264,7 +264,20 @@ def default_write_calendar(db: Session) -> Calendar:
 
 
 def _can_write(cal: Calendar) -> bool:
-    return cal.source == "local" or (cal.source == "google" and cal.writable)
+    return cal.source == "local" or (cal.source in ("google", "icloud") and cal.writable)
+
+
+def _remote(cal: Calendar):
+    """El servicio que guarda los eventos de este calendario fuera (Google, iCloud) o None si es propio."""
+    if cal.source == "google":
+        from app.services import google
+
+        return google, google.GoogleError, "Google Calendar"
+    if cal.source == "icloud":
+        from app.services import icloud
+
+        return icloud, icloud.ICloudError, "iCloud"
+    return None
 
 
 def _writable_calendar(db: Session, calendar_id: uuid.UUID | None) -> Calendar:
@@ -279,16 +292,16 @@ def _writable_calendar(db: Session, calendar_id: uuid.UUID | None) -> Calendar:
 
 
 def _push(db: Session, item: Item) -> None:
-    """Si el evento es de Google, el cambio se hace primero allí; si falla no se guarda."""
-    if item.event.calendar.source != "google":
+    """Si el evento es de Google o iCloud, el cambio se hace primero allí; si falla no se guarda."""
+    remote = _remote(item.event.calendar)
+    if remote is None:
         return
-    from app.services.google import GoogleError, push_event
-
+    service, error, name = remote
     try:
-        push_event(db, item)
-    except GoogleError as exc:
+        service.push_event(db, item)
+    except error as exc:
         db.rollback()
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Calendar: {exc}") from None
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"{name}: {exc}") from None
 
 
 def create_event(db: Session, data: EventIn) -> Item:
@@ -318,11 +331,13 @@ def update_event(db: Session, item: Item, changes: dict) -> Item:
     check_project(db, changes.get("project_id"))
     if changes.get("calendar_id") and changes["calendar_id"] != e.calendar_id:
         target = _writable_calendar(db, changes["calendar_id"])
-        if target.source != e.calendar.source or target.source == "google":
+        if target.source != e.calendar.source or target.source != "local":
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 "Para pasarlo a otro calendario, crea el evento allí y borra este")
         e.calendar_id = target.id
     if (item.entities or {}).get("recurring_event_id"):
+        if e.calendar.source == "icloud":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Los eventos que se repiten se editan en el iPhone")
         changes.pop("rrule", None)  # una ocurrencia de un evento repetido de Google
     for key in ("location", "description", "rrule", "remind_minutes"):
         if key in changes:
@@ -356,13 +371,13 @@ def delete_event(db: Session, item: Item) -> None:
     cal = item.event.calendar
     if not _can_write(cal):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Bórralo en el calendario original")
-    if cal.source == "google":
-        from app.services.google import GoogleError, delete_remote_event
-
+    remote = _remote(cal)
+    if remote is not None:
+        service, error, name = remote
         try:
-            delete_remote_event(db, item)
-        except GoogleError as exc:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Calendar: {exc}") from None
+            service.delete_remote_event(db, item)
+        except error as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"{name}: {exc}") from None
     db.delete(item)
     db.commit()
 
@@ -374,7 +389,9 @@ def event_out(occ: Occurrence) -> EventOut:
         source=occ.calendar.source, starts_at=occ.starts_at, ends_at=occ.ends_at, all_day=e.all_day,
         location=e.location, description=e.description, rrule=e.rrule, remind_minutes=e.remind_minutes,
         tags=item.tags, project_id=item.project_id, recurring=occ.recurring or bool((item.entities or {}).get("recurring_event_id")),
-        url=e.url, meet_url=e.meet_url, writable=_can_write(occ.calendar),
+        url=e.url, meet_url=e.meet_url, writable=_can_write(occ.calendar) and not (
+            occ.calendar.source == "icloud" and (item.entities or {}).get("recurring_event_id")
+        ),
     )
 
 
