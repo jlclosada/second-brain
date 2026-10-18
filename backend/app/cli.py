@@ -2,6 +2,7 @@
 
     python -m app.cli migrate          aplica las migraciones pendientes
     python -m app.cli reset-password   pone una contraseña nueva (y quita el segundo factor)
+    python -m app.cli refile-names     vuelve a poner nombre a los documentos ya archivados
 """
 
 import getpass
@@ -33,6 +34,11 @@ def main() -> None:
         print("Base de datos al día.")
     elif command == "reset-password":
         reset_password()
+    elif command == "refile-names":
+        from app.services.downloads import refile_names
+
+        with SessionLocal() as db:
+            print(f"Documentos renombrados: {refile_names(db)}")
     else:
         sys.exit(__doc__)
 

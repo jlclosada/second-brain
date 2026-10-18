@@ -55,7 +55,30 @@ function OpenFile({ item }: { item: Item }) {
   );
 }
 
-function ResultCard({ item, snippet, i }: { item: Item; snippet: string; i: number }) {
+/** Las etiquetas que puso Jarvis; un toque busca todo lo que la tenga. */
+function Tags({ tags, onTag, max = 5 }: { tags: string[]; onTag: (t: string) => void; max?: number }) {
+  if (!tags.length) return null;
+  return (
+    <span className="mt-1.5 flex flex-wrap gap-1">
+      {tags.slice(0, max).map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onTag(t);
+          }}
+          className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[0.72rem] text-muted transition-colors hover:bg-cobalt-soft hover:text-cobalt"
+        >
+          #{t}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+function ResultCard({ item, snippet, i, onTag }: { item: Item; snippet: string; i: number; onTag: (t: string) => void }) {
   return (
     <motion.li layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 0.03 }}>
       <div className="glass glass-hover flex items-start gap-4 rounded-2xl p-4">
@@ -64,6 +87,7 @@ function ResultCard({ item, snippet, i }: { item: Item; snippet: string; i: numb
           <p className="font-medium leading-snug">{item.title}</p>
           <p className="mt-0.5 text-sm text-muted">{meta(item)}</p>
           {snippet && <p className="mt-1.5 line-clamp-2 text-sm text-faint" dangerouslySetInnerHTML={{ __html: snippet }} />}
+          <Tags tags={item.tags} onTag={onTag} />
         </GoLink>
         <OpenFile item={item} />
       </div>
@@ -253,7 +277,7 @@ export default function DocumentsPage() {
               <ul className="flex flex-col gap-2.5">
                 <AnimatePresence initial={false}>
                   {d?.hits.map((h, i) => (
-                    <ResultCard key={h.item.id} item={h.item} snippet={h.snippet} i={i} />
+                    <ResultCard key={h.item.id} item={h.item} snippet={h.snippet} i={i} onTag={setText} />
                   ))}
                 </AnimatePresence>
               </ul>
@@ -310,6 +334,9 @@ export default function DocumentsPage() {
                                     {meta(item)}
                                     {item.expires_on && <span className="text-ochre"> · vence {relativeDay(item.expires_on)}</span>}
                                   </p>
+                                  <span className="hidden sm:block">
+                                    <Tags tags={item.tags} onTag={setText} max={4} />
+                                  </span>
                                 </div>
                                 <ChevronRight size={15} className="shrink-0 text-faint opacity-0 transition-opacity group-hover:opacity-100" />
                               </GoLink>

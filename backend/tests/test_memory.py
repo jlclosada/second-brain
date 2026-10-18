@@ -156,3 +156,15 @@ def test_downloads_wait_for_claude_by_default(client, brain_dirs, monkeypatch):
         assert downloads.scan(db) == 0
     assert (dl / "scan.txt").exists()
     assert client.get("/api/memory/status").json()["downloads"]["waiting_for_ai"] is True
+
+
+def test_clean_name_keeps_numbers_that_contain_the_year():
+    from types import SimpleNamespace
+
+    def name(title, doc_date, year):
+        return downloads.clean_name(SimpleNamespace(title=title, doc_date=doc_date, year=year), ".PDF")
+
+    assert name("Factura nº 2026-A-0042 octubre 2026", date(2026, 10, 14), 2026) == "2026-10 Factura nº 2026-A-0042 octubre.pdf"
+    assert name("Datos enero 2023 (viento)", date(2023, 1, 1), 2023) == "2023-01 Datos enero (viento).pdf"
+    assert name("Póliza coche (2024)", None, 2024) == "2024 Póliza coche.pdf"
+    assert name("Documento sin fecha", None, None) == "Documento sin fecha.pdf"

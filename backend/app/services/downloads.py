@@ -11,6 +11,7 @@ documento (instaladores, comprimidos, vídeos) se queda donde está.
 
 import logging
 import mimetypes
+import re
 import shutil
 import time
 import uuid
@@ -97,13 +98,51 @@ def _move_duplicate(db: Session, path: Path, original: Document) -> None:
 
 
 def clean_name(item: Item, suffix: str) -> str:
-    """«2024-03 Póliza seguro coche Mapfre.pdf»: fecha delante para que se ordenen solos."""
+    """«2024-03 Póliza seguro coche Mapfre.pdf»: fecha delante para que se ordenen solos.
+
+    El año ya va delante, así que se quita del título solo si está suelto («… 2024»),
+    nunca si forma parte de algo («Factura 2026-A-0042»)."""
     when = item.doc_date or (date(item.year, 1, 1) if item.year else None)
     prefix = f"{when:%Y-%m} " if item.doc_date else (f"{when:%Y} " if when else "")
     title = vault.safe_title(item.title or "Documento")
-    if item.year and str(item.year) in title and prefix:
-        title = title.replace(str(item.year), "").strip(" -_") or title
-    return f"{prefix}{title}"[:140] + suffix.lower()
+    if item.year and prefix:
+        stripped = re.sub(rf"(?<![\w-]){item.year}(?![\w-])", "", title)
+        stripped = re.sub(r"\(\s*\)", "", stripped)            # «( )» que quedan vacíos
+        stripped = re.sub(r"\s+([),.;:])", r"\1", stripped)    # «enero )» → «enero)»
+        stripped = " ".join(stripped.split()).strip(" -_,")
+        title = stripped or title
+    return f"{prefix}{title}"[:140].rstrip() + suffix.lower()
+
+
+def refile_names(db: Session) -> int:
+    """Vuelve a poner nombre a los documentos ya archivados (si la regla de nombres mejoró)."""
+    r = vault.root()
+    if r is None:
+        return 0
+    changed = 0
+    for item in db.scalars(select(Item).where(Item.kind == "document", Item.entities["filed_to"].astext.is_not(None))):
+        doc = item.document
+        src = Path(doc.path) if doc else None
+        if src is None or not src.exists():
+            continue
+        wanted = clean_name(item, src.suffix)
+        if wanted == src.name:
+            continue
+        dest = vault._unique(src.parent, Path(wanted).stem, Path(wanted).suffix)
+        src.rename(dest)
+        old_rel, new_rel = src.relative_to(r).as_posix(), dest.relative_to(r).as_posix()
+        doc.path, doc.filename = str(dest), dest.name
+        note_path = (item.entities or {}).get("note")
+        if note_path and (r / note_path).exists():
+            note = r / note_path
+            note.write_text(note.read_text().replace(old_rel, new_rel).replace(src.name, dest.name))
+        item.entities = {**item.entities, "filed_to": new_rel}
+        changed += 1
+        log.info("Renombrado %s → %s", src.name, dest.name)
+    if changed:
+        rebuild_index(db)
+    db.commit()
+    return changed
 
 
 def file_document(db: Session, item: Item) -> str | None:
