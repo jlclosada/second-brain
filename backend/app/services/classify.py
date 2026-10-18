@@ -52,7 +52,9 @@ Devuelve sus metadatos para poder encontrarlo después buscando cosas como "segu
 
 - category: elige la más útil de {", ".join(CATEGORIES)}. Un seguro de coche es Vehículo; uno de hogar, Hogar.
 - year: el año al que se refiere el documento (periodo de la póliza, ejercicio fiscal, fecha de la factura).
-- title: claro y específico, con la entidad y el año cuando existan.
+- title: claro y específico, con la entidad y el año cuando existan. Nombra lo que ES, no cómo es el archivo:
+  nada de "imagen", "PDF", "documento sin texto", "captura" ni el nombre del archivo. Máximo 8 palabras.
+  Ejemplos: "Logotipo Administratum", "Cartel torneo Warhammer 40k 2026", "Certificado titularidad cuenta Santander".
 - Las fechas en formato AAAA-MM-DD. Si un dato no aparece, déjalo vacío; no lo inventes."""
 
 
