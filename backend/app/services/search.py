@@ -6,6 +6,7 @@ filtro año = 2024. Las dos búsquedas se combinan con Reciprocal Rank Fusion.
 
 import html
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 
@@ -185,4 +186,28 @@ def _search(db: Session, parsed: ParsedQuery, years: list[int], category: str | 
         elif row.dist <= MAX_SEMANTIC_DISTANCE:
             hits[row.item_id] = Hit(row.item_id, 1 / (RRF_K + rank), row.chunk_id, semantic_rank=rank)
 
+    _boost_titles(db, hits, parsed.text)
     return sorted(hits.values(), key=lambda h: h.score, reverse=True)[:limit]
+
+
+def _fold(value: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", value.lower()) if unicodedata.category(c) != "Mn")
+
+
+TITLE_BOOST = 0.04  # más que la diferencia entre el 1.º y el 10.º puesto de una lista
+
+
+def _boost_titles(db: Session, hits: dict[uuid.UUID, "Hit"], query_text: str) -> None:
+    """Si lo que buscas está en el título o el tipo («factura»), ese documento va primero:
+    es lo que es, no algo que lo menciona."""
+    words = [w[:6] for w in re.findall(r"\w{3,}", _fold(query_text))]
+    if not words or not hits:
+        return
+    rows = db.execute(
+        text("SELECT id, title, coalesce(doc_type, '') AS doc_type FROM items WHERE id = ANY(:ids)"),
+        {"ids": list(hits)},
+    )
+    for row in rows:
+        label = _fold(f"{row.title} {row.doc_type}")
+        found = sum(1 for w in words if w in label)
+        hits[row.id].score += TITLE_BOOST * found / len(words)
