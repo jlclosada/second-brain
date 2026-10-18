@@ -3,7 +3,7 @@ import logging
 import uuid
 
 import anthropic
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.db import get_db
 from app.models import Conversation
 from app.schemas import ChatIn, ChatMessage, ChatOut, ConversationDetail, ConversationOut
 from app.security import require_user
+from app.services import attachments
 from app.services.assistant import AssistantUnavailable, chat, chat_events
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"], dependencies=[Depends(require_user)])
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"], dependencies=[De
 @router.post("/chat", response_model=ChatOut)
 def send(body: ChatIn, db: Session = Depends(get_db)):
     try:
-        conv, reply = chat(db, body.message, body.conversation_id)
+        conv, reply = chat(db, body.message, body.conversation_id, body.attachments)
     except AssistantUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
     except anthropic.RateLimitError:
@@ -53,13 +54,25 @@ def stream(body: ChatIn, db: Session = Depends(get_db)):
     """Lo mismo que /chat, pero en directo (Server-Sent Events)."""
     def events():
         try:
-            for event in chat_events(db, body.message, body.conversation_id):
+            for event in chat_events(db, body.message, body.conversation_id, body.attachments):
                 yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
         except Exception as exc:  # noqa: BLE001  todo fallo se le cuenta a la interfaz
             yield f"data: {json.dumps({'type': 'error', 'message': _friendly(exc)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@router.post("/attachments", status_code=status.HTTP_201_CREATED)
+async def upload_attachments(files: list[UploadFile] = File(...)):
+    """Adjuntos para el próximo mensaje a Jarvis."""
+    out = []
+    for f in files[:8]:
+        try:
+            out.append(attachments.save(f.filename or "", await f.read()))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+    return out
 
 
 @router.get("/conversations", response_model=list[ConversationOut])

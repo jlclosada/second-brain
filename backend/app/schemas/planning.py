@@ -290,6 +290,8 @@ class TodayOut(BaseModel):
     counts: dict[str, int]
     inbox: InboxOut | None = None
     github: GitHubToday = Field(default_factory=GitHubToday)
+    # Fichas de las personas con las que tienes eventos hoy: {id del evento: [ficha resumida]}
+    people: dict[str, list[dict]] = Field(default_factory=dict)
     # google / github: "off" | "ok" | "reconnect" | "error"; google_configured: hay app OAuth
     connections: dict[str, str] = Field(default_factory=dict)
 

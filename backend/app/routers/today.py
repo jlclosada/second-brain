@@ -11,6 +11,7 @@ from app.routers.integrations import email_out, inbox_counts, inbox_list, task_f
 from app.schemas import CaptureIn, CaptureOut, ExpiringDoc, GitHubToday, InboxOut, TodayOut
 from app.security import require_user
 from app.services import brain, google
+from app.services import people as people_module
 from app.services.calendar import events_between, local_day_bounds
 from app.services.capture import capture
 
@@ -80,13 +81,22 @@ def today(db: Session = Depends(get_db), settings: Settings = Depends(get_settin
     gh_today = GitHubToday(connected=bool(gh and gh.secret_encrypted), account=gh.account if gh else None,
                            **(task_from_github(db) if gh and gh.secret_encrypted else {}))
 
+    occurrences = events_between(db, start, end)
+    people_by_event: dict[str, list[dict]] = {}
+    if people_module.all_people(db):
+        for o in occurrences:
+            if o.ends_at > datetime.now(UTC):
+                found = people_module.for_event(db, o.item.title, o.event.description, o.event.location, o.item.entities)
+                if found:
+                    people_by_event[str(o.item.id)] = found
+
     return TodayOut(
         date=day, timezone=settings.timezone,
-        events=[brain.event_out(o) for o in events_between(db, start, end)],
+        events=[brain.event_out(o) for o in occurrences],
         overdue=overdue, due_today=due_today, reminders=[brain.reminder_out(r) for r in reminders],
         expiring=expiring, journal=brain.note_out(journal) if journal else None,
         pinned_notes=[brain.note_out(i) for i in pinned], recent=[brain.link_ref(i) for i in recent],
-        counts=counts, inbox=inbox, github=gh_today, connections=connections,
+        counts=counts, inbox=inbox, github=gh_today, connections=connections, people=people_by_event,
     )
 
 

@@ -54,8 +54,25 @@ def event_alerts(db: Session, now: datetime, default_minutes: int) -> None:
         if alert_at <= now and now - alert_at <= LATE_LIMIT:
             when = "Ahora" if minutes == 0 else f"A las {_fmt_time(occ.starts_at)}"
             body = f"{when}{f', en {occ.event.location}' if occ.event.location else ''}"
+            body += _people_hint(db, occ)
             notify(db, kind="event", title=occ.item.title, body=body, url=f"/calendario?evento={occ.item.id}",
                    key=f"event:{occ.item.id}:{occ.starts_at.isoformat()}:{minutes}")
+
+
+def _people_hint(db: Session, occ) -> str:
+    """«· Óscar: cerró el acuerdo con HP (2026-10-18)»: lo último de la ficha, para llegar preparado."""
+    from app.services.people import for_event
+
+    try:
+        found = for_event(db, occ.item.title, occ.event.description, occ.event.location, occ.item.entities)
+    except Exception:  # noqa: BLE001  un aviso nunca debe fallar por esto
+        return ""
+    hints = []
+    for person in found[:2]:
+        note = (person["ultimo"] or person["como_tratarle"] or [""])[0]
+        if note:
+            hints.append(f"{person['nombre']}: {note[:90]}")
+    return (" · " + " · ".join(hints)) if hints else ""
 
 
 def task_alerts(db: Session, now: datetime) -> None:

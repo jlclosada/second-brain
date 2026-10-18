@@ -1,11 +1,13 @@
 """Asistente: conversa con Claude, que consulta y modifica tu segundo cerebro
 mediante herramientas (buscar, ver la agenda, crear tareas, eventos y notas…)."""
 
+import base64
 import json
 import logging
 import uuid
 from collections.abc import Iterator
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import Any
 
 import anthropic
@@ -13,10 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Chunk, Conversation, Email, Item, Task
+from app.models import Chunk, Conversation, Document, Email, Item, Task
 from app.schemas import ChatAction, ChatMessage, EventIn, NoteIn, ReminderIn, TaskIn
-from app.services import brain, google, vault
+from app.services import attachments, brain, google, people, storage, vault
 from app.services.calendar import events_between, local_day_bounds
+from app.services.pipeline import schedule_processing
 from app.services.search import search
 
 log = logging.getLogger(__name__)
@@ -46,6 +49,10 @@ Cómo trabajas:
   el borrador y dices que lo revise y pulse Enviar. Si no está claro qué correo es, mira correo_pendiente.
 - En el vault sigues sus reglas: lo nuevo va a la Bandeja, el diario es 05-Diario/AAAA-MM-DD, se enlaza
   con [[wikilinks]] y nunca se borra nada.
+- Personas: cuando te cuente algo de alguien (lo que hizo, un acuerdo, cómo le gusta que le traten,
+  algo pendiente), apúntalo en su ficha con apuntar_sobre_persona, con la fecha que diga (o hoy). Si
+  adjunta imágenes sobre eso, adjuntar=true. Antes de hablar de alguien o de una reunión con alguien,
+  lee su ficha (ficha_persona) y recuérdale lo importante: cómo tratarle y lo último que pasó.
 - Las fechas relativas ("el martes", "mañana") se calculan desde el momento indicado en cada mensaje.
 - Si no encuentras algo, dilo y sugiere qué podría faltar. No inventes fechas, importes ni nombres."""
 
@@ -112,6 +119,19 @@ TOOLS = [
           {"id": _S}, ["id"]),
     _tool("borrar_tarea", "Borra una tarea por su id (para tareas que ya no tienen sentido; si está hecha, usa "
           "completar_tarea).", {"id": _S}, ["id"]),
+    _tool("ficha_persona", "Lee la ficha de una persona (cliente, compañero, contacto): quién es, cómo tratarle, "
+          "historial con fechas y pendientes. Úsala antes de opinar sobre alguien o de una reunión con esa persona.",
+          {"nombre": _S}, ["nombre"]),
+    _tool("apuntar_sobre_persona", "Apunta algo sobre una persona en su ficha del vault (la crea si no existe). "
+          "seccion: 'Historial' (lo que ha hecho o pasado, con fecha), 'Cómo tratarle' (preferencias, tono, cosas a "
+          "tener en cuenta), 'Quién es' (cargo, empresa, contexto) o 'Pendiente'. fecha AAAA-MM-DD (hoy si null). "
+          "adjuntar=true guarda en la ficha las imágenes que la persona adjuntó en este mensaje. empresa, relacion "
+          "(cliente, equipo, proveedor, amigo…) y email solo rellenan campos vacíos de la ficha.",
+          {"nombre": _S, "texto": _S, "seccion": _NS, "fecha": _NS, "adjuntar": {"type": "boolean"},
+           "empresa": _NS, "relacion": _NS, "email": _NS},
+          ["nombre", "texto", "seccion", "fecha", "adjuntar", "empresa", "relacion", "email"]),
+    _tool("guardar_documento", "Guarda en Documentos los archivos adjuntos de este mensaje (se leen, se clasifican y "
+          "se pueden buscar después).", {}, []),
     _tool("crear_nota", "Guarda una nota en markdown en el vault (en la Bandeja). Enlaza con [[wikilinks]] a lo "
           "relacionado.", {"titulo": _S, "contenido": _S}, ["titulo", "contenido"]),
     _tool("crear_recordatorio", "Programa un aviso push a una hora concreta (AAAA-MM-DDTHH:MM, hora local).",
@@ -141,9 +161,11 @@ def _fmt_dt(dt: datetime) -> str:
 
 
 class Toolbox:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, files: list[Path] | None = None):
         self.db = db
         self.actions: list[ChatAction] = []
+        # Lo que la persona adjuntó en este mensaje (capturas, fotos, PDF).
+        self.files = files or []
 
     def run(self, name: str, args: dict) -> Any:
         fn = getattr(self, f"t_{name}", None)
@@ -299,6 +321,54 @@ class Toolbox:
         self.actions.append(ChatAction(tool="borrar_tarea", summary=f"Borró la tarea «{title}»"))
         return {"ok": True}
 
+    def t_ficha_persona(self, nombre: str) -> dict:
+        matches = people.find(self.db, nombre)
+        if not matches:
+            return {"error": f"No hay ficha de «{nombre}». Si te cuentan algo de esta persona, créala con apuntar_sobre_persona."}
+        if len(matches) > 1:
+            return {"varias": [m.item.title for m in matches], "nota": "Pregunta a cuál se refiere."}
+        note = matches[0]
+        self.actions.append(ChatAction(tool="ficha_persona", summary=f"Leyó la ficha de {note.item.title}",
+                                       link=vault.obsidian_url(note.path)))
+        return {"ruta": note.path, "frontmatter": note.frontmatter, "contenido": note.body[:12000]}
+
+    def t_apuntar_sobre_persona(self, nombre: str, texto: str, seccion: str | None, fecha: str | None, adjuntar: bool,
+                                empresa: str | None, relacion: str | None, email: str | None):
+        matches = people.find(self.db, nombre)
+        if len(matches) > 1:
+            return {"varias": [m.item.title for m in matches], "nota": "Pregunta a cuál se refiere antes de apuntar."}
+        day = date.fromisoformat(fecha) if fecha else None
+        images = [f for f in self.files if f.suffix.lower() in attachments.IMAGE_TYPES or f.suffix.lower() == ".heic"] if adjuntar else []
+        out = people.note_fact(self.db, nombre, texto, day, seccion or "Historial", images,
+                               {"empresa": empresa, "relacion": relacion, "email": email})
+        extra = f" con {len(out['adjuntos'])} imagen{'es' if len(out['adjuntos']) > 1 else ''}" if out["adjuntos"] else ""
+        verb = "Creó la ficha de" if out["creada"] else "Apuntó en la ficha de"
+        self.actions.append(ChatAction(tool="apuntar_sobre_persona", summary=f"{verb} {out['persona']}{extra}",
+                                       link=vault.obsidian_url(out["ruta"])))
+        return {"ok": True, **out}
+
+    def t_guardar_documento(self):
+        if not self.files:
+            return {"error": "No hay archivos adjuntos en este mensaje"}
+        saved = []
+        for f in self.files:
+            data = f.read_bytes()
+            digest = storage.sha256(data)
+            if self.db.scalar(select(Document.item_id).where(Document.sha256 == digest)):
+                continue
+            item = Item(id=uuid.uuid4(), kind="document", title=f.name, status="pending", tags=[], entities={})
+            path = storage.save_original(item.id, f.name, data)
+            item.document = Document(filename=f.name, mime=attachments.ALLOWED.get(f.suffix.lower(), "application/octet-stream"),
+                                     size=len(data), sha256=digest, path=str(path))
+            self.db.add(item)
+            self.db.flush()
+            schedule_processing(self.db, item)
+            saved.append(str(item.id))
+        self.db.commit()
+        self.actions.append(ChatAction(tool="guardar_documento", summary=f"Guardó {len(saved)} documento(s); los está leyendo",
+                                       link="/documentos"))
+        return {"ok": True, "guardados": len(saved), "nota": "Se clasifican solos en unos segundos."}
+
     def t_leer_nota(self, nota: str) -> dict:
         note = vault.find_note(self.db, nota)
         if note is None:
@@ -363,7 +433,41 @@ def _stream(client: anthropic.Anthropic, messages: list[dict]):
     return client.messages.stream(**params)
 
 
-def chat_events(db: Session, text: str, conversation_id: uuid.UUID | None) -> Iterator[dict]:
+def _user_content(text: str, files: list[Path]) -> list[dict] | str:
+    """El mensaje con sus adjuntos: Claude ve las imágenes y los PDF."""
+    if not files:
+        return text
+    blocks: list[dict] = []
+    for f in files:
+        data = base64.standard_b64encode(f.read_bytes()).decode()
+        mime = attachments.IMAGE_TYPES.get(f.suffix.lower())
+        if mime:
+            blocks.append({"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}})
+        elif f.suffix.lower() == ".pdf":
+            blocks.append({"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": data}})
+    names = ", ".join(f.name for f in files)
+    blocks.append({"type": "text", "text": f"{text}\n\n[Adjuntos en este mensaje: {len(files)} ({names}). Si hay que "
+                                            "guardarlos, usa las herramientas con adjuntar=true.]"})
+    return blocks
+
+
+def _lighten(messages: list[dict]) -> list[dict]:
+    """Para guardar el historial sin megas de base64: las imágenes se quedan en «[imagen adjunta]»."""
+    out = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list):
+            content = [
+                {"type": "text", "text": f"[{'imagen' if b.get('type') == 'image' else 'documento'} adjunto]"}
+                if isinstance(b, dict) and b.get("type") in ("image", "document") else b
+                for b in content
+            ]
+        out.append({**m, "content": content})
+    return out
+
+
+def chat_events(db: Session, text: str, conversation_id: uuid.UUID | None,
+                attachment_ids: list[str] | None = None) -> Iterator[dict]:
     """La conversación como eventos, para verla en directo:
     start → (step → text… → action…)* → done. El texto llega a trozos mientras Claude escribe."""
     client = _client()
@@ -377,9 +481,10 @@ def chat_events(db: Session, text: str, conversation_id: uuid.UUID | None) -> It
     now = datetime.now(get_settings().tz)
     weekday = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][now.weekday()]
     api = list(conv.api_messages)
-    api.append({"role": "user", "content": f"[Ahora: {weekday} {now.strftime('%Y-%m-%d %H:%M')}]\n{text}"})
+    files = attachments.resolve(attachment_ids or [])
+    api.append({"role": "user", "content": _user_content(f"[Ahora: {weekday} {now.strftime('%Y-%m-%d %H:%M')}]\n{text}", files)})
 
-    tools = Toolbox(db)
+    tools = Toolbox(db, files)
     reply_text = ""
     for _ in range(MAX_STEPS):
         yield {"type": "step"}
@@ -419,16 +524,18 @@ def chat_events(db: Session, text: str, conversation_id: uuid.UUID | None) -> It
 
     reply = ChatMessage(role="assistant", text=reply_text or "Hecho.", actions=tools.actions)
     conv = db.merge(conv)
-    conv.api_messages = api
-    conv.messages = [*conv.messages, ChatMessage(role="user", text=text).model_dump(), reply.model_dump()]
+    conv.api_messages = _lighten(api)
+    user_text = text + (f"\n\n📎 {len(files)} adjunto{'s' if len(files) > 1 else ''}" if files else "")
+    conv.messages = [*conv.messages, ChatMessage(role="user", text=user_text).model_dump(), reply.model_dump()]
     conv.updated_at = datetime.now(get_settings().tz)
     db.commit()
     yield {"type": "done", "conversation_id": str(conv.id), "reply": reply.model_dump()}
 
 
-def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Conversation, ChatMessage]:
+def chat(db: Session, text: str, conversation_id: uuid.UUID | None,
+         attachment_ids: list[str] | None = None) -> tuple[Conversation, ChatMessage]:
     done: dict = {}
-    for event in chat_events(db, text, conversation_id):
+    for event in chat_events(db, text, conversation_id, attachment_ids):
         if event["type"] == "done":
             done = event
     conv = db.get(Conversation, uuid.UUID(done["conversation_id"]))

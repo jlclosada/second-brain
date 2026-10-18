@@ -137,6 +137,7 @@ export type Today = {
   counts: Record<string, number>;
   inbox: Inbox | null;
   github: { connected: boolean; account: string | null; reviews: Task[]; assigned: Task[] };
+  people: Record<string, PersonCard[]>;
   connections: { google: ConnectionStatus; github: ConnectionStatus; icloud: ConnectionStatus; google_configured: "yes" | "no" };
 };
 
@@ -261,12 +262,31 @@ export type JarvisEvent =
   | { type: "error"; message: string };
 
 /** Habla con Jarvis en directo: cada evento llega en cuanto ocurre. */
-export async function streamChat(message: string, conversationId: string | undefined, onEvent: (e: JarvisEvent) => void, signal?: AbortSignal) {
+export type ChatFile = { id: string; name: string; mime: string; size: number };
+export type PersonCard = {
+  nombre: string;
+  ruta: string;
+  obsidian_url: string;
+  empresa: string | null;
+  relacion: string | null;
+  rol: string | null;
+  como_tratarle: string[];
+  ultimo: string[];
+  pendiente: string[];
+};
+
+export async function streamChat(
+  message: string,
+  conversationId: string | undefined,
+  onEvent: (e: JarvisEvent) => void,
+  signal?: AbortSignal,
+  attachments: string[] = [],
+) {
   const res = await fetch("/api/assistant/stream", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", "X-Requested-With": "segundo-cerebro" },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify({ message, conversation_id: conversationId, attachments }),
     signal,
   });
   if (res.status === 401) window.dispatchEvent(new Event("sb:logout"));
@@ -451,6 +471,11 @@ export const api = {
   pushTest: () => request<{ subscriptions: number }>("/api/push/test", send("POST")),
 
   // Asistente
+  chatAttach: (files: File[]) => {
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
+    return request<ChatFile[]>("/api/assistant/attachments", { method: "POST", body: form });
+  },
   chat: (message: string, conversation_id?: string) =>
     request<{ conversation_id: string; reply: ChatMessage }>("/api/assistant/chat", send("POST", { message, conversation_id })),
   conversations: () => request<Conversation[]>("/api/assistant/conversations"),

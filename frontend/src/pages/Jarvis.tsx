@@ -12,13 +12,16 @@ import {
   MapPin,
   Mic,
   MicOff,
+  Paperclip,
   Plus,
   Send,
   Sparkles,
   Square,
   Video,
+  UserRound,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -33,12 +36,23 @@ import { CompactThread, EventSheet, eventToDraft, newEventDraft, type EventDraft
 import Orb, { type OrbState } from "../components/Orb";
 import { TaskRow, TaskSheet } from "../components/TaskParts";
 import { colorVar, cx } from "../components/ui";
-import { api, streamChat, type CalEvent, type ChatAction, type Task } from "../lib/api";
+import { api, streamChat, type CalEvent, type ChatAction, type PersonCard, type Task } from "../lib/api";
 import { ago, capitalize, fmt, time } from "../lib/dates";
 import { GoLink, Page } from "../lib/nav";
 import { readAloudPref, setReadAloudPref, useVoice } from "../lib/voice";
 
-type Message = { id: string; role: "user" | "assistant"; text: string; actions: ChatAction[]; working?: string | null; streaming?: boolean; error?: boolean };
+type Message = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  actions: ChatAction[];
+  working?: string | null;
+  streaming?: boolean;
+  error?: boolean;
+  // Miniaturas de lo adjuntado (solo durante esta visita)
+  images?: string[];
+};
+type Pending = { file: File; preview: string; id?: string; uploading: boolean };
 
 const TOOL_LABEL: Record<string, string> = {
   buscar: "Buscando en tu memoria",
@@ -168,8 +182,15 @@ function DraftCard({ data }: { data: Record<string, string> }) {
 function Bubble({ m }: { m: Message }) {
   if (m.role === "user")
     return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-cobalt-soft px-4 py-2.5 text-ink">{m.text}</p>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-end gap-1.5">
+        {!!m.images?.length && (
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {m.images.map((src) => (
+              <img key={src} src={src} alt="" className="size-24 rounded-xl object-cover ring-1 ring-line" />
+            ))}
+          </div>
+        )}
+        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-cobalt-soft px-4 py-2.5 whitespace-pre-wrap text-ink">{m.text}</p>
       </motion.div>
     );
   return (
@@ -252,7 +273,26 @@ function SeeAll({ to, label = "Ver todo" }: { to: string; label?: string }) {
   );
 }
 
-function NowCard({ events, onOpen }: { events: CalEvent[]; onOpen: (e: CalEvent) => void }) {
+/** «Con Óscar Martín»: lo último que pasó y cómo tratarle, para llegar preparado. */
+function PeopleHint({ cards }: { cards: PersonCard[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {cards.slice(0, 2).map((p) => (
+        <a key={p.ruta} href={p.obsidian_url} className="block rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm transition-colors hover:bg-white/[0.07]">
+          <p className="flex items-center gap-1.5 font-medium">
+            <UserRound size={14} className="text-cobalt" /> {p.nombre}
+            {(p.empresa || p.relacion) && <span className="font-normal text-faint">· {[p.relacion, p.empresa].filter(Boolean).join(", ")}</span>}
+          </p>
+          {p.ultimo[0] && <p className="mt-0.5 line-clamp-2 text-muted">Último: {p.ultimo[0]}</p>}
+          {p.como_tratarle[0] && <p className="line-clamp-1 text-muted">Ten en cuenta: {p.como_tratarle[0]}</p>}
+          {p.pendiente[0] && <p className="line-clamp-1 text-ochre">Pendiente: {p.pendiente[0]}</p>}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function NowCard({ events, people, onOpen }: { events: CalEvent[]; people: Record<string, PersonCard[]>; onOpen: (e: CalEvent) => void }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30_000);
@@ -277,6 +317,7 @@ function NowCard({ events, onOpen }: { events: CalEvent[]; onOpen: (e: CalEvent)
           </p>
         )}
       </button>
+      {people[next.id]?.length ? <PeopleHint cards={people[next.id]} /> : null}
       <div className="flex items-center gap-3">
         <div className="h-1 flex-1 overflow-hidden rounded-full bg-line">
           <motion.div
@@ -314,9 +355,11 @@ export default function JarvisPage() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
 
   const initial = useMemo(load, []);
-  const [messages, setMessages] = useState<Message[]>(initial.messages.map((m) => ({ ...m, streaming: false, working: null })));
+  const [messages, setMessages] = useState<Message[]>(initial.messages.map((m) => ({ ...m, streaming: false, working: null, images: undefined })));
   const [convId, setConvId] = useState<string | undefined>(initial.id);
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<Pending[]>([]);
+  const filePicker = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [aloud, setAloud] = useState(readAloudPref);
   const [task, setTask] = useState<Task | null>(null);
@@ -336,10 +379,19 @@ export default function JarvisPage() {
 
   const ask = useCallback(
     async (raw: string, spoken = false) => {
-      const question = raw.trim();
-      if (!question || busy) return;
+      const ready = files.filter((f) => f.id);
+      const question = raw.trim() || (ready.length ? "Mira esto." : "");
+      if (!question || busy || files.some((f) => f.uploading)) return;
       setText("");
-      const userMsg: Message = { id: crypto.randomUUID(), role: "user", text: question, actions: [] };
+      setFiles([]);
+      const attachmentIds = ready.map((f) => f.id!);
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: "user",
+        text: question,
+        actions: [],
+        images: ready.filter((f) => f.file.type.startsWith("image/")).map((f) => f.preview),
+      };
       const replyId = crypto.randomUUID();
       setMessages((ms) => [...ms, userMsg, { id: replyId, role: "assistant", text: "", actions: [], streaming: true, working: null }]);
       requestAnimationFrame(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
@@ -391,6 +443,7 @@ export default function JarvisPage() {
             }
           },
           abort.current.signal,
+          attachmentIds,
         );
         if (finalText && (aloud || spoken)) voice.speak(finalText);
       } catch (e) {
@@ -403,7 +456,7 @@ export default function JarvisPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [busy, convId, aiEnabled, aloud, queryClient],
+    [busy, convId, aiEnabled, aloud, queryClient, files],
   );
 
   const voice = useVoice({ onFinal: (t) => ask(t, true) });
@@ -448,6 +501,26 @@ export default function JarvisPage() {
 
   const orbState: OrbState = voice.listening ? "listening" : busy ? "thinking" : voice.speaking ? "speaking" : "idle";
   const talking = messages.length > 0;
+
+  const attach = async (picked: File[]) => {
+    const valid = picked.filter((f) => f.type.startsWith("image/") || f.type === "application/pdf").slice(0, 8 - files.length);
+    if (!valid.length) return;
+    const pending: Pending[] = valid.map((file) => ({ file, preview: URL.createObjectURL(file), uploading: true }));
+    setFiles((fs) => [...fs, ...pending]);
+    try {
+      const uploaded = await api.chatAttach(valid);
+      setFiles((fs) =>
+        fs.map((f) => {
+          const i = pending.findIndex((p) => p.preview === f.preview);
+          return i === -1 ? f : { ...f, id: uploaded[i]?.id, uploading: false };
+        }),
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+      setFiles((fs) => fs.filter((f) => !pending.some((p) => p.preview === f.preview)));
+    }
+    input.current?.focus();
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -545,7 +618,48 @@ export default function JarvisPage() {
 
       {/* La caja para hablarle */}
       <div className={cx("z-20 mx-auto mt-6 max-w-3xl", talking && "sticky bottom-[calc(80px+env(safe-area-inset-bottom))] lg:bottom-6")}>
-        <form onSubmit={submit} className="glass flex items-end gap-2 rounded-[1.75rem] p-2 pl-5 focus-within:border-line-strong">
+        {files.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2 px-2">
+            {files.map((f) => (
+              <div key={f.preview} className="relative">
+                {f.file.type.startsWith("image/") ? (
+                  <img src={f.preview} alt={f.file.name} className={cx("size-16 rounded-xl object-cover ring-1 ring-line", f.uploading && "opacity-50")} />
+                ) : (
+                  <span className="glass flex h-16 max-w-40 items-center gap-1.5 rounded-xl px-3 text-xs text-muted">
+                    <Paperclip size={13} /> <span className="truncate">{f.file.name}</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFiles((fs) => fs.filter((x) => x.preview !== f.preview))}
+                  aria-label={`Quitar ${f.file.name}`}
+                  className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-ink text-paper"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <form
+          onSubmit={submit}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            attach([...e.dataTransfer.files]);
+          }}
+          className="glass flex items-end gap-2 rounded-[1.75rem] p-2 pl-2 focus-within:border-line-strong"
+        >
+          <input ref={filePicker} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => attach([...(e.target.files ?? [])])} />
+          <button
+            type="button"
+            onClick={() => filePicker.current?.click()}
+            aria-label="Adjuntar imagen o PDF"
+            title="Adjuntar (o pega una captura)"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-white/5 hover:text-ink"
+          >
+            <Paperclip size={19} />
+          </button>
           <label htmlFor="jarvis" className="sr-only">
             Pregunta o pide algo a Jarvis
           </label>
@@ -555,6 +669,13 @@ export default function JarvisPage() {
             rows={1}
             value={voice.listening ? voice.interim : text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              const pasted = [...e.clipboardData.files];
+              if (pasted.length) {
+                e.preventDefault();
+                attach(pasted);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -606,7 +727,7 @@ export default function JarvisPage() {
           ) : (
             <button
               type="submit"
-              disabled={!text.trim()}
+              disabled={(!text.trim() && !files.length) || files.some((f) => f.uploading)}
               aria-label="Enviar"
               className="flex size-11 shrink-0 items-center justify-center rounded-full bg-cobalt text-paper transition-opacity disabled:opacity-25"
             >
@@ -648,7 +769,7 @@ export default function JarvisPage() {
           )}
 
           <Card title="Ahora" icon={<CalendarDays size={15} />} className="md:col-span-3" i={0}>
-            <NowCard events={d.events} onOpen={(e) => setEvent(eventToDraft(e))} />
+            <NowCard events={d.events} people={d.people ?? {}} onOpen={(e) => setEvent(eventToDraft(e))} />
           </Card>
 
           <Card title="Lo que he hecho" icon={<FolderSync size={15} />} className="md:col-span-3" i={1}>

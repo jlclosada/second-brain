@@ -207,6 +207,9 @@ def _dump_frontmatter(fm: dict) -> str:
     for key, value in fm.items():
         if value is None:
             continue
+        if value == "":
+            lines.append(f"{key}:")  # campo de plantilla aún vacío
+            continue
         if isinstance(value, list):
             lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
         else:
@@ -288,34 +291,47 @@ def ensure_daily(db: Session, day: date) -> str:
     return rel_path
 
 
+def add_to_section(lines: list[str], section: str, entries: list[str]) -> list[str]:
+    """Añade líneas al final de una sección «## …» (la crea si no existe). Reutiliza la viñeta
+    vacía de las plantillas («- »)."""
+    heading = next((i for i, line in enumerate(lines) if line.strip().lower() == f"## {section}".lower()), None)
+    if heading is None:
+        # Antes del pie «---\nEnlaces: …» si lo hay (sin confundirlo con el cierre del frontmatter).
+        fm_end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), 0) if lines[:1] == ["---"] else -1
+        foot = next((i for i in range(len(lines) - 1, fm_end, -1) if lines[i].strip() == "---"), None)
+        if foot is not None and foot >= len(lines) - 3:
+            return [*lines[:foot], f"## {section}", *entries, "", *lines[foot:]]
+        return [*lines, "", f"## {section}", *entries]
+    end = heading + 1
+    while end < len(lines) and not lines[end].startswith("#") and lines[end].strip() != "---":
+        end += 1
+    empty = next((i for i in range(heading + 1, end) if lines[i].strip() == "-"), None)
+    if empty is not None and len(entries) == 1:
+        lines[empty] = entries[0]
+        return lines
+    if empty is not None:
+        del lines[empty]
+        end -= 1
+    insert_at = end
+    while insert_at > heading + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    return lines[:insert_at] + entries + lines[insert_at:]
+
+
+def append_lines(db: Session, rel_path: str, section: str, entries: list[str]) -> None:
+    path = _resolve(rel_path)
+    lines = add_to_section(path.read_text().splitlines(), section, entries)
+    path.write_text("\n".join(lines) + "\n")
+    note = db.scalars(select(VaultNote).where(VaultNote.path == rel_path)).first()
+    _upsert(db, root(), path, note, path.stat().st_mtime)
+    db.commit()
+
+
 def append_daily(db: Session, text: str, section: str = "Notas y capturas", day: date | None = None) -> str:
     """Añade una línea a una sección del diario de hoy (lo crea desde la plantilla si no existe)."""
     day = day or datetime.now(get_settings().tz).date()
     rel_path = ensure_daily(db, day)
-    path = _resolve(rel_path)
-    lines = path.read_text().splitlines()
-    entry = f"- {text.strip()}"
-    heading = next((i for i, line in enumerate(lines) if line.strip().lower() == f"## {section}".lower()), None)
-    if heading is None:
-        lines += ["", f"## {section}", entry]
-    else:
-        end = heading + 1
-        while end < len(lines) and not lines[end].startswith("#") and lines[end].strip() != "---":
-            end += 1
-        # Se reutiliza la viñeta vacía de la plantilla («- »).
-        empty = next((i for i in range(heading + 1, end) if lines[i].strip() in ("-", "- [ ]")), None)
-        if empty is not None and lines[empty].strip() == "-":
-            lines[empty] = entry
-        else:
-            insert_at = end
-            while insert_at > heading + 1 and not lines[insert_at - 1].strip():
-                insert_at -= 1
-            lines.insert(insert_at, entry)
-    path.write_text("\n".join(lines) + "\n")
-    r = root()
-    note = db.scalars(select(VaultNote).where(VaultNote.path == rel_path)).first()
-    _upsert(db, r, path, note, path.stat().st_mtime)
-    db.commit()
+    append_lines(db, rel_path, section, [f"- {text.strip()}"])
     return rel_path
 
 

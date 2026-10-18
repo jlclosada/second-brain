@@ -85,6 +85,8 @@ class FeedOut(BaseModel):
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     conversation_id: uuid.UUID | None = None
+    # Archivos subidos antes a /api/assistant/attachments (capturas, fotos, PDF)
+    attachments: list[str] = Field(default_factory=list, max_length=8)
 
 
 class ChatAction(BaseModel):

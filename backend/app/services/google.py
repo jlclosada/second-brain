@@ -601,6 +601,14 @@ def sync_events(db: Session, g: Google, cal: Calendar) -> int:
             "url": entry.get("htmlLink"), "meet_url": _meet_url(entry),
             "remind_minutes": _remind_minutes(entry),
         }
+        entities: dict = {}
+        if entry.get("recurringEventId"):
+            entities["recurring_event_id"] = entry["recurringEventId"]
+        # Con quién es (para recordarte su ficha antes de la reunión). Tú no cuentas.
+        attendees = [{"email": a.get("email", ""), "name": a.get("displayName", "")}
+                     for a in entry.get("attendees") or [] if not a.get("self") and not a.get("resource")]
+        if attendees:
+            entities["attendees"] = attendees[:30]
         event = existing.get(key)
         if event is None:
             item = Item(kind="event", title=title, status="ready", tags=[], entities={})
@@ -609,10 +617,11 @@ def sync_events(db: Session, g: Google, cal: Calendar) -> int:
             db.add(item)
         else:
             item = event.item
-            if item.title == title and all(getattr(event, k) == v for k, v in values.items()) and not event.rrule:
+            if (item.title == title and (item.entities or {}) == entities
+                    and all(getattr(event, k) == v for k, v in values.items()) and not event.rrule):
                 continue
         item.title = title
-        item.entities = {"recurring_event_id": entry["recurringEventId"]} if entry.get("recurringEventId") else {}
+        item.entities = entities
         event.rrule = None
         event.repeat_until = None
         for k, v in values.items():
