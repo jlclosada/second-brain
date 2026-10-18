@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import Shell from "./components/Shell";
 import { Loading } from "./components/ui";
@@ -13,6 +13,7 @@ const AssistantPage = lazy(() => import("./pages/Assistant"));
 const CalendarPage = lazy(() => import("./pages/Calendar"));
 const DocumentPage = lazy(() => import("./pages/DocumentDetail"));
 const DocumentsPage = lazy(() => import("./pages/Documents"));
+const InboxPage = lazy(() => import("./pages/Inbox"));
 const JournalPage = lazy(() => import("./pages/Journal"));
 const NotePage = lazy(() => import("./pages/NoteDetail"));
 const NotesPage = lazy(() => import("./pages/Notes"));
@@ -45,6 +46,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<TodayPage />} />
           <Route path="/hoy" element={<TodayPage />} />
+          <Route path="/bandeja" element={<InboxPage />} />
+          <Route path="/biblioteca" element={<Navigate to="/notas" replace />} />
           <Route path="/calendario" element={<CalendarPage />} />
           <Route path="/tareas" element={<TasksPage />} />
           <Route path="/notas" element={<NotesPage />} />

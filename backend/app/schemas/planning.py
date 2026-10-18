@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.system import InboxOut
+
 COLORS = ("cobalt", "ochre", "moss", "clay", "plum", "slate", "teal", "rose")
 Color = Literal["cobalt", "ochre", "moss", "clay", "plum", "slate", "teal", "rose"]
 
@@ -140,6 +142,8 @@ class TaskOut(BaseModel):
     project_id: uuid.UUID | None
     sort: float
     created_at: datetime
+    source: str | None = None
+    external_url: str | None = None
 
 
 # --- Calendario ----------------------------------------------------------------
@@ -177,6 +181,8 @@ class CalendarOut(BaseModel):
     color: str
     source: str
     enabled: bool
+    writable: bool = True
+    primary: bool = False
     last_synced_at: datetime | None
     sync_error: str | None
     events: int = 0
@@ -231,6 +237,9 @@ class EventOut(BaseModel):
     project_id: uuid.UUID | None
     # Para eventos que se repiten: cada ocurrencia sale por separado.
     recurring: bool = False
+    url: str | None = None
+    meet_url: str | None = None
+    writable: bool = True
 
 
 # --- Recordatorios ----------------------------------------------------------
@@ -260,6 +269,13 @@ class ReminderOut(BaseModel):
 
 # --- Hoy -------------------------------------------------------------------------
 
+class GitHubToday(BaseModel):
+    connected: bool = False
+    account: str | None = None
+    reviews: list[TaskOut] = Field(default_factory=list)
+    assigned: list[TaskOut] = Field(default_factory=list)
+
+
 class TodayOut(BaseModel):
     date: date
     timezone: str
@@ -272,6 +288,10 @@ class TodayOut(BaseModel):
     pinned_notes: list[NoteOut]
     recent: list[LinkRef]
     counts: dict[str, int]
+    inbox: InboxOut | None = None
+    github: GitHubToday = Field(default_factory=GitHubToday)
+    # google / github: "off" | "ok" | "reconnect" | "error"; google_configured: hay app OAuth
+    connections: dict[str, str] = Field(default_factory=dict)
 
 
 class ExpiringDoc(BaseModel):
@@ -288,6 +308,8 @@ class CaptureIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     # Si es False solo interpreta y devuelve la propuesta, sin guardar.
     commit: bool = True
+    # Para corregir la interpretación: guardar como este tipo aunque parezca otro.
+    kind: Literal["task", "event", "note", "reminder"] | None = None
 
 
 class CaptureOut(BaseModel):

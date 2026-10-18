@@ -13,6 +13,7 @@ from app.schemas import CalendarIn, CalendarOut, CalendarUpdate, EventIn, EventO
 from app.security import audit, encrypt, get_account, require_user
 from app.services import brain
 from app.services.calendar import build_feed, default_calendar, events_between, local_day_bounds, schedule_sync
+from app.services.jobs import enqueue
 
 router = APIRouter(prefix="/api", tags=["calendar"], dependencies=[Depends(require_user)])
 # El feed iCal se protege con su propio token secreto (los calendarios del móvil no envían cookies).
@@ -30,7 +31,8 @@ def _calendar_out(db: Session, cal: Calendar) -> CalendarOut:
 def list_calendars(db: Session = Depends(get_db)):
     default_calendar(db)
     db.commit()
-    return [_calendar_out(db, c) for c in db.scalars(select(Calendar).order_by(Calendar.created_at))]
+    order = (Calendar.source != "google", Calendar.primary.desc(), Calendar.created_at)
+    return [_calendar_out(db, c) for c in db.scalars(select(Calendar).order_by(*order))]
 
 
 @router.post("/calendars", response_model=CalendarOut, status_code=status.HTTP_201_CREATED)
@@ -51,18 +53,28 @@ def update_calendar(cal_id: uuid.UUID, body: CalendarUpdate, db: Session = Depen
     cal = db.get(Calendar, cal_id)
     if cal is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Calendario no encontrado")
-    for key, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    for key, value in changes.items():
         setattr(cal, key, value)
+    if changes.get("enabled") and cal.source in ("ics", "google"):
+        _schedule(db, cal)
     db.commit()
     return _calendar_out(db, cal)
+
+
+def _schedule(db: Session, cal: Calendar) -> None:
+    if cal.source == "google":
+        enqueue(db, "sync_google_calendar", {"calendar_id": str(cal.id)}, dedupe=True, max_attempts=1)
+    else:
+        schedule_sync(db, cal)
 
 
 @router.post("/calendars/{cal_id}/sync", response_model=CalendarOut)
 def sync_now(cal_id: uuid.UUID, db: Session = Depends(get_db)):
     cal = db.get(Calendar, cal_id)
-    if cal is None or cal.source != "ics":
+    if cal is None or cal.source == "local":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Calendario sincronizado no encontrado")
-    schedule_sync(db, cal)
+    _schedule(db, cal)
     db.commit()
     return _calendar_out(db, cal)
 
@@ -72,6 +84,8 @@ def delete_calendar(cal_id: uuid.UUID, db: Session = Depends(get_db)):
     cal = db.get(Calendar, cal_id)
     if cal is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Calendario no encontrado")
+    if cal.source == "google":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Los calendarios de Google se ocultan, no se borran desde aquí")
     if cal.source == "local" and db.scalar(select(func.count()).select_from(Calendar).where(Calendar.source == "local")) <= 1:
         raise HTTPException(status.HTTP_409_CONFLICT, "Necesitas al menos un calendario propio")
     # Los elementos de sus eventos se borran con ellos.
@@ -112,11 +126,7 @@ def update_event(item_id: uuid.UUID, body: EventUpdate, db: Session = Depends(ge
 
 @router.delete("/events/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_event(item_id: uuid.UUID, db: Session = Depends(get_db)):
-    item = brain.get_item(db, item_id, "event")
-    if item.event.calendar.source != "local":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Bórralo en el calendario original")
-    db.delete(item)
-    db.commit()
+    brain.delete_event(db, brain.get_item(db, item_id, "event"))
 
 
 @router.get("/calendar/feed", response_model=FeedOut)

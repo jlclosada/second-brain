@@ -8,6 +8,7 @@ import { Button, cx, IconButton, Loading } from "../components/ui";
 import { api } from "../lib/api";
 import { capitalize, dayFromIso, fmt, isoDay } from "../lib/dates";
 import { GoLink, Page, useGo } from "../lib/nav";
+import LibraryTabs from "../components/LibraryTabs";
 
 export default function JournalPage() {
   const { day: param } = useParams();
@@ -20,6 +21,7 @@ export default function JournalPage() {
 
   return (
     <Page>
+      <LibraryTabs />
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-muted">Diario</p>

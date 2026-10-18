@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addHours, parseISO } from "date-fns";
-import { MapPin, Repeat, Trash2 } from "lucide-react";
+import { ExternalLink, MapPin, Repeat, Trash2, Video } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -31,10 +31,11 @@ export function useCalendarRefresh() {
 export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClose: () => void }) {
   const refresh = useCalendarRefresh();
   const calendars = useQuery({ queryKey: ["calendars"], queryFn: api.calendars, enabled: !!draft });
+  const me = useQuery({ queryKey: ["me"], queryFn: api.me, enabled: !!draft });
   const [form, setForm] = useState<EventDraft | null>(draft);
   useEffect(() => setForm(draft), [draft]);
 
-  const readOnly = form?.source === "ics";
+  const readOnly = !!form?.id && form.writable === false;
   const isNew = !form?.id;
   const set = (patch: Partial<EventDraft>) => setForm((f) => (f ? { ...f, ...patch } : f));
 
@@ -65,14 +66,51 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
   };
 
   const remove = async () => {
-    if (!form?.id || !confirm(form.recurring ? "¿Eliminar este evento y todas sus repeticiones?" : "¿Eliminar este evento?")) return;
-    await api.deleteEvent(form.id);
-    refresh();
-    onClose();
-    toast("Evento eliminado");
+    const question = !form?.recurring
+      ? "¿Eliminar este evento?"
+      : form.source === "google"
+        ? "¿Eliminar solo esta ocurrencia del evento?"
+        : "¿Eliminar este evento y todas sus repeticiones?";
+    if (!form?.id || !confirm(question)) return;
+    try {
+      await api.deleteEvent(form.id);
+      refresh();
+      onClose();
+      toast("Evento eliminado");
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   };
 
-  const local = calendars.data?.filter((c) => c.source === "local") ?? [];
+  // Donde se puede escribir: los propios y los de Google con permiso de edición.
+  const writable = calendars.data?.filter((c) => c.enabled && (c.source === "local" || (c.source === "google" && c.writable))) ?? [];
+  const preferred =
+    writable.find((c) => c.id === me.data?.prefs.default_calendar_id) ?? writable.find((c) => c.source === "google" && c.primary) ?? writable[0];
+  const canPickCalendar = isNew ? writable.length > 1 : form?.source === "local" && writable.filter((c) => c.source === "local").length > 1;
+  const links = form && (form.meet_url || form.url) && (
+    <div className="flex flex-wrap gap-2">
+      {form.meet_url && (
+        <a
+          href={form.meet_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-moss px-3 text-sm font-medium text-white dark:text-paper"
+        >
+          <Video size={16} /> Unirse a la videollamada
+        </a>
+      )}
+      {form.url && (
+        <a
+          href={form.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-sm hover:bg-sunken"
+        >
+          <ExternalLink size={15} /> Abrir en Google Calendar
+        </a>
+      )}
+    </div>
+  );
 
   return (
     <Sheet open={!!draft} onClose={onClose} title={readOnly ? "Evento" : isNew ? "Nuevo evento" : "Editar evento"}>
@@ -88,11 +126,13 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
                 <MapPin size={16} className="text-muted" /> {form.location}
               </p>
             )}
+            {links}
             {form.description && <p className="whitespace-pre-wrap text-sm text-muted">{form.description}</p>}
-            <p className="text-sm text-faint">Viene de un calendario sincronizado. Para cambiarlo, edítalo en el original.</p>
+            <p className="text-sm text-faint">Viene de un calendario de solo lectura. Para cambiarlo, edítalo en el original.</p>
           </div>
         ) : (
           <form onSubmit={save} className="flex flex-col gap-4">
+            {!isNew && links}
             <Field label="Título">
               {(id) => <Input id={id} value={form.title ?? ""} onChange={(e) => set({ title: e.target.value })} required autoFocus={isNew} />}
             </Field>
@@ -152,13 +192,13 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
                 )}
               </Field>
             </div>
-            {local.length > 1 && (
+            {canPickCalendar && (
               <Field label="Calendario">
                 {(id) => (
-                  <Select id={id} value={form.calendar_id ?? local[0]?.id} onChange={(e) => set({ calendar_id: e.target.value })}>
-                    {local.map((c) => (
+                  <Select id={id} value={form.calendar_id ?? preferred?.id} onChange={(e) => set({ calendar_id: e.target.value })}>
+                    {(isNew ? writable : writable.filter((c) => c.source === "local")).map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name}
+                        {c.source === "google" ? `${c.name} (Google)` : c.name}
                       </option>
                     ))}
                   </Select>
@@ -168,7 +208,11 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
             <Field label="Notas">
               {(id) => <Textarea id={id} rows={3} value={form.description ?? ""} onChange={(e) => set({ description: e.target.value })} />}
             </Field>
-            {form.recurring && <p className="text-sm text-faint">Los cambios se aplican a toda la serie.</p>}
+            {form.recurring && (
+              <p className="text-sm text-faint">
+                {form.source === "google" ? "Los cambios se aplican solo a esta ocurrencia." : "Los cambios se aplican a toda la serie."}
+              </p>
+            )}
             <div className="flex items-center justify-between pt-2">
               {!isNew ? (
                 <Button variant="danger" onClick={remove}>

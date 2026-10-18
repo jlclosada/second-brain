@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CheckSquare } from "lucide-react";
+import { CheckSquare, GitPullRequest, Mail } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -8,6 +8,11 @@ import { cx, Dot, Empty, Loading, PageHeader } from "../components/ui";
 import { api, type Task } from "../lib/api";
 import { dayFromIso, fmt, isOverdue, relativeDay } from "../lib/dates";
 import { Page } from "../lib/nav";
+
+const SOURCES = [
+  { tag: "github", label: "GitHub", icon: GitPullRequest },
+  { tag: "correo", label: "Del correo", icon: Mail },
+];
 
 const VIEWS = [
   { value: "today", label: "Hoy", empty: "Nada para hoy. Disfruta." },
@@ -38,12 +43,14 @@ export default function TasksPage() {
   const [params, setParams] = useSearchParams();
   const view = params.get("vista") ?? "today";
   const projectId = params.get("proyecto");
+  const tag = params.get("etiqueta");
+  const filtered = !!projectId || !!tag;
   const [open, setOpen] = useState<Task | null>(null);
 
   const projects = useQuery({ queryKey: ["projects"], queryFn: () => api.projects() });
   const tasks = useQuery({
-    queryKey: ["tasks", view, projectId],
-    queryFn: () => api.tasks({ view: projectId ? "open" : view, project_id: projectId ?? undefined }),
+    queryKey: ["tasks", view, projectId, tag],
+    queryFn: () => api.tasks({ view: filtered ? "open" : view, project_id: projectId ?? undefined, tag: tag ?? undefined }),
   });
 
   // ?t=<id> abre una tarea concreta (desde la búsqueda o el asistente).
@@ -55,8 +62,8 @@ export default function TasksPage() {
 
   const project = projects.data?.find((p) => p.id === projectId);
   const groups = useMemo(
-    () => (view === "upcoming" || view === "open" ? groupByDay(tasks.data ?? []) : [{ label: "", tasks: tasks.data ?? [] }]),
-    [tasks.data, view],
+    () => (view === "upcoming" || view === "open" || filtered ? groupByDay(tasks.data ?? []) : [{ label: "", tasks: tasks.data ?? [] }]),
+    [tasks.data, view, filtered],
   );
   const colorOf = (t: Task) => projects.data?.find((p) => p.id === t.project_id)?.color ?? null;
 
@@ -68,7 +75,10 @@ export default function TasksPage() {
 
   return (
     <Page>
-      <PageHeader title={project ? project.name : "Tareas"} sub={project ? (project.kind === "area" ? "Área" : "Proyecto") : undefined} />
+      <PageHeader
+        title={project ? project.name : tag ? (SOURCES.find((x) => x.tag === tag)?.label ?? `#${tag}`) : "Tareas"}
+        sub={project ? (project.kind === "area" ? "Área" : "Proyecto") : tag ? "Tareas pendientes con esta etiqueta" : undefined}
+      />
       <div className="grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
         <nav aria-label="Vistas de tareas" className="scrollbar-thin -mx-4 flex gap-1 overflow-x-auto px-4 lg:mx-0 lg:flex-col lg:px-0">
           {VIEWS.map((v) => (
@@ -76,13 +86,28 @@ export default function TasksPage() {
               key={v.value}
               to={`/tareas?vista=${v.value}`}
               replace
-              aria-current={!projectId && view === v.value ? "page" : undefined}
+              aria-current={!filtered && view === v.value ? "page" : undefined}
               className={cx(
                 "flex h-9 shrink-0 items-center rounded-lg px-3 text-left text-[0.95rem] whitespace-nowrap",
-                !projectId && view === v.value ? "bg-ink text-paper" : "text-muted hover:bg-sunken hover:text-ink",
+                !filtered && view === v.value ? "bg-ink text-paper" : "text-muted hover:bg-sunken hover:text-ink",
               )}
             >
               {v.label}
+            </Link>
+          ))}
+          <p className="mt-4 mb-1 hidden px-3 text-sm text-faint lg:block">De dónde vienen</p>
+          {SOURCES.map(({ tag: t, label, icon: Icon }) => (
+            <Link
+              key={t}
+              to={`/tareas?etiqueta=${t}`}
+              replace
+              aria-current={tag === t ? "page" : undefined}
+              className={cx(
+                "flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-left text-[0.95rem] whitespace-nowrap",
+                tag === t ? "bg-ink text-paper" : "text-muted hover:bg-sunken hover:text-ink",
+              )}
+            >
+              <Icon size={15} /> {label}
             </Link>
           ))}
           {!!projects.data?.length && <p className="mt-4 mb-1 hidden px-3 text-sm text-faint lg:block">Proyectos y áreas</p>}
@@ -105,7 +130,7 @@ export default function TasksPage() {
         </nav>
 
         <div className="min-w-0 max-w-3xl">
-          {view !== "done" && (
+          {view !== "done" && !tag && (
             <QuickAddTask
               defaults={projectId ? { project_id: projectId } : view === "inbox" ? {} : undefined}
               placeholder={projectId ? `Añadir a ${project?.name ?? "este proyecto"}…` : "Añade una tarea: «pagar el IBI el 5 de noviembre»…"}
@@ -115,7 +140,10 @@ export default function TasksPage() {
             <Loading />
           ) : !tasks.data?.length ? (
             <div className="mt-6">
-              <Empty icon={<CheckSquare size={20} />} title={VIEWS.find((v) => v.value === view)?.empty ?? "Sin tareas"} />
+              <Empty
+                icon={<CheckSquare size={20} />}
+                title={tag ? "No hay tareas pendientes con esta etiqueta." : (VIEWS.find((v) => v.value === view)?.empty ?? "Sin tareas")}
+              />
             </div>
           ) : (
             groups.map((g) => (

@@ -20,7 +20,7 @@ from app.services.jobs import run_once  # noqa: E402
 CSRF = {"X-Requested-With": "segundo-cerebro"}
 TABLES = (
     "items, jobs, reminders, notifications, sessions, login_attempts, audit_log, conversations, projects, "
-    "account, push_subscriptions, calendars"
+    "account, push_subscriptions, calendars, integrations"
 )
 
 

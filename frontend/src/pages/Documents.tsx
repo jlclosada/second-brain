@@ -8,6 +8,7 @@ import { Button, cx, Empty, Loading, PageHeader } from "../components/ui";
 import { api, type Item } from "../lib/api";
 import { fmt, relativeDay } from "../lib/dates";
 import { GoLink, Page, Shared } from "../lib/nav";
+import LibraryTabs from "../components/LibraryTabs";
 
 function UploadZone({ onDone }: { onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
@@ -127,6 +128,7 @@ export default function DocumentsPage() {
 
   return (
     <Page>
+      <LibraryTabs />
       <PageHeader
         title="Documentos"
         sub={stats.data ? `${stats.data.total} guardados${stats.data.pending ? `, ${stats.data.pending} procesándose` : ""}.` : undefined}

@@ -55,6 +55,8 @@ class PrefsUpdate(BaseModel):
     default_event_reminder: int | None = Field(default=None, ge=0, le=60 * 24)
     briefing_hour: int | None = Field(default=None, ge=0, le=23)
     expiry_warning_days: list[int] | None = None
+    # Calendario donde se crean los eventos nuevos ("" = automático)
+    default_calendar_id: str | None = Field(default=None, max_length=40)
 
 
 class NotificationOut(BaseModel):
@@ -110,3 +112,64 @@ class ConversationOut(BaseModel):
 
 class ConversationDetail(ConversationOut):
     messages: list[ChatMessage]
+
+
+# --- Conexiones ---------------------------------------------------------------
+
+class IntegrationOut(BaseModel):
+    provider: str
+    configured: bool  # hay credenciales de app (solo Google)
+    connected: bool
+    account: str | None = None
+    status: str = "ok"
+    error: str | None = None
+    connected_at: datetime | None = None
+    state: dict[str, Any] = Field(default_factory=dict)
+    redirect_uri: str | None = None
+    client_from_env: bool = False
+
+
+class IntegrationsOut(BaseModel):
+    google: IntegrationOut
+    github: IntegrationOut
+
+
+class GoogleClientIn(BaseModel):
+    client_id: str = Field(min_length=10, max_length=300)
+    client_secret: str = Field(min_length=6, max_length=300)
+
+
+class GitHubTokenIn(BaseModel):
+    token: str = Field(min_length=10, max_length=300)
+
+
+class EmailOut(BaseModel):
+    id: uuid.UUID
+    thread_id: str
+    subject: str
+    sender_name: str | None
+    sender_email: str | None
+    snippet: str
+    received_at: datetime
+    unread: bool
+    starred: bool
+    important: bool
+    category: str
+    message_count: int
+    url: str
+    task_id: uuid.UUID | None
+    needs_attention: bool
+
+
+class InboxOut(BaseModel):
+    connected: bool
+    account: str | None
+    synced_at: datetime | None
+    error: str | None
+    counts: dict[str, int]
+    emails: list[EmailOut]
+
+
+class EmailToTask(BaseModel):
+    due_date: datetime | None = None
+    archive: bool = False

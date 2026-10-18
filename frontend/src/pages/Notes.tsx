@@ -7,6 +7,7 @@ import { Button, cx, Empty, Input, Loading, PageHeader } from "../components/ui"
 import { api } from "../lib/api";
 import { ago } from "../lib/dates";
 import { GoLink, Page, Shared, useGo } from "../lib/nav";
+import LibraryTabs from "../components/LibraryTabs";
 
 export default function NotesPage() {
   const notes = useQuery({ queryKey: ["notes"], queryFn: () => api.notes() });
@@ -35,10 +36,8 @@ export default function NotesPage() {
 
   return (
     <Page>
+      <LibraryTabs />
       <PageHeader title="Notas" sub="Ideas, apuntes y todo lo que quieras recordar.">
-        <GoLink to="/diario" className="inline-flex h-10 items-center rounded-lg px-3.5 text-muted hover:bg-sunken hover:text-ink">
-          Diario
-        </GoLink>
         <Button variant="primary" onClick={create}>
           <Plus size={17} /> Nueva nota
         </Button>

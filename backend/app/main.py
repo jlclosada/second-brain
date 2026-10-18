@@ -10,7 +10,19 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.routers import assistant, auth, calendar, documents, notes, notifications, projects, search, tasks, today
+from app.routers import (
+    assistant,
+    auth,
+    calendar,
+    documents,
+    integrations,
+    notes,
+    notifications,
+    projects,
+    search,
+    tasks,
+    today,
+)
 from app.security import CSRF_HEADER
 
 log = logging.getLogger(__name__)
@@ -73,7 +85,7 @@ async def security(request: Request, call_next):
     return response
 
 
-for module in (auth, documents, search, notes, tasks, calendar, projects, today, notifications, assistant):
+for module in (auth, documents, search, notes, tasks, calendar, projects, today, notifications, assistant, integrations):
     app.include_router(module.router)
 app.include_router(calendar.feed_router)
 

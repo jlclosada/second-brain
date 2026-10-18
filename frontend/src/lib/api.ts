@@ -1,7 +1,7 @@
 // Cliente de la API. Todas las peticiones que cambian datos llevan la cabecera
 // X-Requested-With: el servidor la exige como protección contra CSRF.
 
-export type Kind = "document" | "note" | "task" | "event";
+export type Kind = "document" | "note" | "task" | "event" | "email";
 
 export type DocumentFile = { filename: string; mime: string; size: number; pages: number | null; ocr_used: boolean };
 
@@ -59,14 +59,18 @@ export type Task = {
   project_id: string | null;
   sort: number;
   created_at: string;
+  source: "github" | "gmail" | null;
+  external_url: string | null;
 };
 
 export type CalendarSource = {
   id: string;
   name: string;
   color: Color;
-  source: "local" | "ics";
+  source: "local" | "ics" | "google";
   enabled: boolean;
+  writable: boolean;
+  primary: boolean;
   last_synced_at: string | null;
   sync_error: string | null;
   events: number;
@@ -77,7 +81,7 @@ export type CalEvent = {
   title: string;
   calendar_id: string;
   color: Color;
-  source: "local" | "ics";
+  source: "local" | "ics" | "google";
   starts_at: string;
   ends_at: string;
   all_day: boolean;
@@ -88,6 +92,9 @@ export type CalEvent = {
   tags: string[];
   project_id: string | null;
   recurring: boolean;
+  url: string | null;
+  meet_url: string | null;
+  writable: boolean;
 };
 
 export type Reminder = {
@@ -128,8 +135,55 @@ export type Today = {
   pinned_notes: Note[];
   recent: LinkRef[];
   counts: Record<string, number>;
+  inbox: Inbox | null;
+  github: { connected: boolean; account: string | null; reviews: Task[]; assigned: Task[] };
+  connections: { google: ConnectionStatus; github: ConnectionStatus; google_configured: "yes" | "no" };
 };
 
+export type ConnectionStatus = "off" | "ok" | "error" | "reconnect";
+
+export type Email = {
+  id: string;
+  thread_id: string;
+  subject: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  snippet: string;
+  received_at: string;
+  unread: boolean;
+  starred: boolean;
+  important: boolean;
+  category: "primary" | "updates" | "promotions" | "social" | "forums";
+  message_count: number;
+  url: string;
+  task_id: string | null;
+  needs_attention: boolean;
+};
+
+export type InboxView = "attention" | "primary" | "other" | "all";
+export type Inbox = {
+  connected: boolean;
+  account: string | null;
+  synced_at: string | null;
+  error: string | null;
+  counts: Record<InboxView | "unread", number>;
+  emails: Email[];
+};
+
+export type Integration = {
+  provider: "google" | "github";
+  configured: boolean;
+  connected: boolean;
+  account: string | null;
+  status: ConnectionStatus;
+  error: string | null;
+  connected_at: string | null;
+  state: Record<string, string>;
+  redirect_uri: string | null;
+  client_from_env: boolean;
+};
+
+export type CaptureKind = "task" | "event" | "note" | "reminder";
 export type CaptureResult = {
   kind: "task" | "event" | "note" | "reminder";
   title: string;
@@ -157,7 +211,7 @@ export type Me = {
   ai_enabled: boolean;
   timezone: string;
   session_id: string;
-  prefs: { default_event_reminder: number; briefing_hour: number; expiry_warning_days: number[] };
+  prefs: { default_event_reminder: number; briefing_hour: number; expiry_warning_days: number[]; default_calendar_id?: string };
 };
 export type SessionInfo = { id: string; created_at: string; last_seen_at: string; ip: string | null; user_agent: string | null; current: boolean };
 export type AuditEntry = { at: string; action: string; ip: string | null; detail: Record<string, unknown> };
@@ -218,7 +272,7 @@ export const api = {
   login: (password: string, totp?: string) => request("/api/auth/login", send("POST", { password, totp })),
   logout: () => request("/api/auth/logout", send("POST")),
   me: () => request<Me>("/api/auth/me"),
-  prefs: (body: Partial<Me["prefs"]>) => request<Me>("/api/auth/prefs", send("PATCH", body)),
+  prefs: (body: Partial<Me["prefs"]> & { default_calendar_id?: string }) => request<Me>("/api/auth/prefs", send("PATCH", body)),
   changePassword: (current: string, next: string) => request("/api/auth/password", send("POST", { current, new: next })),
   totpSetup: () => request<{ secret: string; uri: string; qr_svg: string }>("/api/auth/totp/setup", send("POST")),
   totpEnable: (code: string) => request("/api/auth/totp/enable", send("POST", { code })),
@@ -229,7 +283,22 @@ export const api = {
 
   // Hoy y captura
   today: () => request<Today>("/api/today"),
-  capture: (text: string, commit = true) => request<CaptureResult>("/api/capture", send("POST", { text, commit })),
+  capture: (text: string, commit = true, kind?: CaptureKind) => request<CaptureResult>("/api/capture", send("POST", { text, commit, kind })),
+
+  // Conexiones
+  integrations: () => request<{ google: Integration; github: Integration }>("/api/integrations"),
+  setGoogleClient: (client_id: string, client_secret: string) => request<void>("/api/integrations/google/client", send("PUT", { client_id, client_secret })),
+  googleStart: () => request<{ url: string }>("/api/integrations/google/start"),
+  googleDisconnect: (forgetApp = false) => request<void>(`/api/integrations/google${qs({ forget_app: forgetApp || undefined })}`, send("DELETE")),
+  githubConnect: (token: string) => request<Integration>("/api/integrations/github", send("PUT", { token })),
+  githubDisconnect: () => request<void>("/api/integrations/github", send("DELETE")),
+  syncIntegration: (provider: "google" | "github") => request<void>(`/api/integrations/${provider}/sync`, send("POST")),
+
+  // Bandeja de entrada (Gmail)
+  inbox: (view: InboxView = "attention") => request<Inbox>(`/api/inbox${qs({ view })}`),
+  archiveEmail: (id: string) => request<void>(`/api/inbox/${id}/archive`, send("POST")),
+  readEmail: (id: string, unread = false) => request<void>(`/api/inbox/${id}/read${qs({ unread: unread || undefined })}`, send("POST")),
+  emailToTask: (id: string, body: { due_date?: string; archive?: boolean } = {}) => request<Task>(`/api/inbox/${id}/task`, send("POST", body)),
 
   // Tareas
   tasks: (params: { view?: string; project_id?: string; tag?: string }) => request<Task[]>(`/api/tasks${qs(params)}`),
@@ -320,5 +389,7 @@ export function itemPath(kind: Kind, id: string) {
       return `/tareas?t=${id}`;
     case "event":
       return `/calendario?evento=${id}`;
+    case "email":
+      return `/bandeja?correo=${id}`;
   }
 }

@@ -67,6 +67,10 @@ class Task(Base):
     rrule: Mapped[str | None] = mapped_column(Text)
     remind: Mapped[bool] = mapped_column(Boolean, default=True)
     sort: Mapped[float] = mapped_column(Float, default=0)
+    # De dónde viene: None (creada aquí), "github" (issue o PR) o "gmail" (a partir de un correo).
+    source: Mapped[str | None] = mapped_column(String(20), index=True)
+    external_id: Mapped[str | None] = mapped_column(Text)
+    external_url: Mapped[str | None] = mapped_column(Text)
 
     item = relationship("Item", back_populates="task", foreign_keys=[item_id])
 
@@ -77,7 +81,11 @@ class Calendar(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text)
     color: Mapped[str] = mapped_column(String(20), default="cobalt")
-    source: Mapped[str] = mapped_column(String(10), default="local")  # local | ics
+    source: Mapped[str] = mapped_column(String(10), default="local")  # local | ics | google
+    # Para Google: el id del calendario, si se puede escribir en él y si es el principal.
+    external_id: Mapped[str | None] = mapped_column(Text)
+    writable: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    primary: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # La URL privada iCal da acceso a tu agenda: se guarda cifrada.
     url_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -106,8 +114,11 @@ class Event(Base):
     repeat_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Minutos de antelación del aviso; None = sin aviso.
     remind_minutes: Mapped[int | None] = mapped_column(Integer)
-    # Para calendarios externos: UID + inicio de la ocurrencia.
+    # Para calendarios externos: UID + inicio de la ocurrencia (iCal) o id del evento (Google).
     external_key: Mapped[str | None] = mapped_column(Text)
+    # Enlace al evento en su calendario original y a la videollamada, si la hay.
+    url: Mapped[str | None] = mapped_column(Text)
+    meet_url: Mapped[str | None] = mapped_column(Text)
 
     item = relationship("Item", back_populates="event")
     calendar: Mapped[Calendar] = relationship()

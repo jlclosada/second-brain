@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, LogOut, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+
+import Connections from "../components/Connections";
 
 import { Button, colorVar, cx, Field, Input, Loading, PageHeader, Select } from "../components/ui";
 import { api, type Color } from "../lib/api";
@@ -72,7 +75,7 @@ function NotificationsBlock() {
       <p className="mt-2 text-sm text-faint">Funcionan con HTTPS (por ejemplo con Tailscale) o en este mismo ordenador.</p>
       {prefs && (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <Field label="Aviso de eventos sincronizados">
+          <Field label="Aviso de eventos de Google y otros calendarios">
             {(id) => (
               <Select id={id} value={prefs.default_event_reminder} onChange={(e) => update({ default_event_reminder: Number(e.target.value) })}>
                 {[0, 5, 10, 15, 30, 60].map((m) => (
@@ -125,47 +128,53 @@ function CalendarsBlock() {
   const feedUrl = feed.data ? `${location.origin}${feed.data.url_path}` : "";
 
   return (
-    <Block id="calendarios" title="Calendarios" intro="Trae aquí Google Calendar, iCloud u Outlook con su enlace privado iCal. Se actualizan cada 15 minutos.">
+    <Block
+      id="calendarios"
+      title="Otros calendarios"
+      intro="iCloud, Outlook o cualquier calendario con enlace iCal (solo lectura, cada 15 minutos). Google Calendar se conecta arriba."
+    >
       {calendars.isPending ? (
         <Loading />
       ) : (
         <ul className="mb-6 divide-y divide-line rounded-xl border border-line bg-surface">
-          {calendars.data?.map((c) => (
-            <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-              <span className="size-3 rounded-full" style={{ background: colorVar(c.color) }} />
-              <div className="min-w-0 flex-1">
-                <p className={cx("font-medium", !c.enabled && "text-faint line-through")}>{c.name}</p>
-                <p className="text-sm text-muted">
-                  {c.source === "local" ? (
-                    "Propio"
-                  ) : c.sync_error ? (
-                    <span className="text-clay">Error: {c.sync_error}</span>
-                  ) : c.last_synced_at ? (
-                    `Sincronizado ${ago(c.last_synced_at)}`
-                  ) : (
-                    "Sincronizando…"
-                  )}
-                  {`, ${c.events} eventos`}
-                </p>
-              </div>
-              {c.source === "ics" && (
-                <Button size="sm" variant="ghost" onClick={() => api.syncCalendar(c.id).then(refresh)} aria-label={`Sincronizar ${c.name}`}>
-                  <RefreshCw size={15} />
+          {calendars.data
+            ?.filter((c) => c.source !== "google")
+            .map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <span className="size-3 rounded-full" style={{ background: colorVar(c.color) }} />
+                <div className="min-w-0 flex-1">
+                  <p className={cx("font-medium", !c.enabled && "text-faint line-through")}>{c.name}</p>
+                  <p className="text-sm text-muted">
+                    {c.source === "local" ? (
+                      "Propio"
+                    ) : c.sync_error ? (
+                      <span className="text-clay">Error: {c.sync_error}</span>
+                    ) : c.last_synced_at ? (
+                      `Sincronizado ${ago(c.last_synced_at)}`
+                    ) : (
+                      "Sincronizando…"
+                    )}
+                    {`, ${c.events} eventos`}
+                  </p>
+                </div>
+                {c.source === "ics" && (
+                  <Button size="sm" variant="ghost" onClick={() => api.syncCalendar(c.id).then(refresh)} aria-label={`Sincronizar ${c.name}`}>
+                    <RefreshCw size={15} />
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => api.updateCalendar(c.id, { enabled: !c.enabled }).then(refresh)}>
+                  {c.enabled ? "Ocultar" : "Mostrar"}
                 </Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => api.updateCalendar(c.id, { enabled: !c.enabled }).then(refresh)}>
-                {c.enabled ? "Ocultar" : "Mostrar"}
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                aria-label={`Eliminar ${c.name}`}
-                onClick={() => confirm(`¿Eliminar «${c.name}» y sus eventos?`) && api.deleteCalendar(c.id).then(refresh, (e) => toast.error(e.message))}
-              >
-                <Trash2 size={15} />
-              </Button>
-            </li>
-          ))}
+                <Button
+                  size="sm"
+                  variant="danger"
+                  aria-label={`Eliminar ${c.name}`}
+                  onClick={() => confirm(`¿Eliminar «${c.name}» y sus eventos?`) && api.deleteCalendar(c.id).then(refresh, (e) => toast.error(e.message))}
+                >
+                  <Trash2 size={15} />
+                </Button>
+              </li>
+            ))}
         </ul>
       )}
 
@@ -180,7 +189,7 @@ function CalendarsBlock() {
           label="Enlace iCal (opcional)"
           hint={
             <>
-              Google: Configuración del calendario, «Dirección secreta en formato iCal». iCloud: Compartir calendario, «Calendario público». Déjalo vacío para
+              iCloud: Compartir calendario, «Calendario público». Outlook: Configuración, Calendarios compartidos, «Publicar un calendario». Déjalo vacío para
               crear un calendario propio. El enlace se guarda cifrado.
             </>
           }
@@ -190,7 +199,7 @@ function CalendarsBlock() {
               id={id}
               value={form.url}
               onChange={(e) => setForm({ ...form, url: e.target.value })}
-              placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"
+              placeholder="webcal://p01-caldav.icloud.com/published/2/…"
               inputMode="url"
             />
           )}
@@ -290,11 +299,16 @@ function SecurityBlock() {
     session_revoked: "Sesión cerrada a distancia",
     push_subscribed: "Notificaciones activadas",
     calendar_added: "Calendario añadido",
+    google_connected: "Google conectado",
+    google_disconnected: "Google desconectado",
+    google_client_saved: "Credenciales de Google guardadas",
+    github_connected: "GitHub conectado",
+    github_disconnected: "GitHub desconectado",
     feed_rotated: "Enlace de calendario renovado",
   };
 
   return (
-    <Block id="seguridad" title="Seguridad" intro="Tus datos solo salen de tu ordenador cuando usas Claude o sincronizas un calendario.">
+    <Block id="seguridad" title="Seguridad" intro="Tus datos solo salen de tu ordenador cuando usas Claude o sincronizas con Google, GitHub o un calendario.">
       <form onSubmit={changePassword} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <Field label="Contraseña actual">
           {(id) => (
@@ -413,7 +427,28 @@ function SecurityBlock() {
   );
 }
 
+const TABS = [
+  { value: "conexiones", label: "Conexiones" },
+  { value: "avisos", label: "Avisos" },
+  { value: "seguridad", label: "Seguridad" },
+] as const;
+type Tab = (typeof TABS)[number]["value"];
+
 export default function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.find((t) => t.value === params.get("seccion"))?.value ?? "conexiones") as Tab;
+  const queryClient = useQueryClient();
+
+  // Google vuelve aquí tras dar (o negar) el permiso.
+  useEffect(() => {
+    const result = params.get("google");
+    if (!result) return;
+    if (result === "ok") toast.success("Google conectado. Trayendo tu correo y tus calendarios…");
+    else toast.error(params.get("mensaje") || "No se pudo conectar con Google");
+    queryClient.invalidateQueries();
+    setParams({ seccion: "conexiones" }, { replace: true });
+  }, [params, setParams, queryClient]);
+
   return (
     <Page>
       <PageHeader title="Ajustes">
@@ -421,9 +456,36 @@ export default function SettingsPage() {
           <LogOut size={16} /> Cerrar sesión
         </Button>
       </PageHeader>
-      <NotificationsBlock />
-      <CalendarsBlock />
-      <SecurityBlock />
+      <nav aria-label="Secciones de ajustes" className="scrollbar-none -mx-4 mb-2 flex gap-1 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
+        {TABS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            aria-current={tab === t.value ? "page" : undefined}
+            onClick={() => setParams({ seccion: t.value }, { replace: true })}
+            className={cx(
+              "-mb-px h-11 shrink-0 border-b-2 px-3 text-[0.95rem] transition-colors",
+              tab === t.value ? "border-ink font-semibold text-ink" : "border-transparent text-muted hover:text-ink",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {tab === "conexiones" && (
+        <>
+          <Block
+            id="conexiones"
+            title="Tus cuentas"
+            intro="Conecta Google para tener aquí tu correo y tu calendario, y GitHub para tus revisiones e issues. Todo se sincroniza solo cada pocos minutos."
+          >
+            <Connections />
+          </Block>
+          <CalendarsBlock />
+        </>
+      )}
+      {tab === "avisos" && <NotificationsBlock />}
+      {tab === "seguridad" && <SecurityBlock />}
     </Page>
   );
 }

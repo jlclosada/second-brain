@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, CheckSquare, FileText, NotebookPen, Search } from "lucide-react";
+import { CalendarDays, CheckSquare, FileText, Mail, NotebookPen, Search } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -12,6 +12,7 @@ const KIND = {
   note: { label: "Nota", icon: NotebookPen },
   task: { label: "Tarea", icon: CheckSquare },
   event: { label: "Evento", icon: CalendarDays },
+  email: { label: "Correo", icon: Mail },
 };
 
 export default function SearchPage() {
@@ -63,6 +64,7 @@ export default function SearchPage() {
             { value: "note", label: "Notas" },
             { value: "task", label: "Tareas" },
             { value: "event", label: "Eventos" },
+            { value: "email", label: "Correos" },
           ]}
         />
       </div>

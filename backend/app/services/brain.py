@@ -163,7 +163,7 @@ def task_out(item: Item) -> TaskOut:
     return TaskOut(
         id=item.id, title=item.title, notes=t.notes, due_date=t.due_date, due_time=t.due_time, priority=t.priority,
         done_at=t.done_at, rrule=t.rrule, remind=t.remind, tags=item.tags, project_id=item.project_id,
-        sort=t.sort, created_at=item.created_at,
+        sort=t.sort, created_at=item.created_at, source=t.source, external_url=t.external_url,
     )
 
 
@@ -244,20 +244,56 @@ def _event_bounds(starts_at: datetime, ends_at: datetime | None, all_day: bool) 
     return starts_at.astimezone(UTC), ends_at.astimezone(UTC)
 
 
-def _local_calendar(db: Session, calendar_id: uuid.UUID | None) -> Calendar:
+def default_write_calendar(db: Session) -> Calendar:
+    """Dónde van los eventos nuevos: el elegido en Ajustes, el principal de Google si
+    está conectado o, si no, el calendario propio."""
+    from app.security import get_account
+
+    chosen = (get_account(db).prefs or {}).get("default_calendar_id")
+    if chosen:
+        try:
+            cal = db.get(Calendar, uuid.UUID(chosen))
+        except ValueError:
+            cal = None
+        if cal is not None and cal.enabled and _can_write(cal):
+            return cal
+    primary = db.scalars(
+        select(Calendar).where(Calendar.source == "google", Calendar.primary.is_(True), Calendar.writable.is_(True))
+    ).first()
+    return primary or default_calendar(db)
+
+
+def _can_write(cal: Calendar) -> bool:
+    return cal.source == "local" or (cal.source == "google" and cal.writable)
+
+
+def _writable_calendar(db: Session, calendar_id: uuid.UUID | None) -> Calendar:
     if calendar_id is None:
-        return default_calendar(db)
+        return default_write_calendar(db)
     cal = db.get(Calendar, calendar_id)
     if cal is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Ese calendario no existe")
-    if cal.source != "local":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Los calendarios sincronizados son de solo lectura")
+    if not _can_write(cal):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "En ese calendario no se puede escribir")
     return cal
+
+
+def _push(db: Session, item: Item) -> None:
+    """Si el evento es de Google, el cambio se hace primero allí; si falla no se guarda."""
+    if item.event.calendar.source != "google":
+        return
+    from app.services.google import GoogleError, push_event
+
+    try:
+        push_event(db, item)
+    except GoogleError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Calendar: {exc}") from None
 
 
 def create_event(db: Session, data: EventIn) -> Item:
     check_project(db, data.project_id)
-    cal = _local_calendar(db, data.calendar_id)
+    cal = _writable_calendar(db, data.calendar_id)
     starts_at, ends_at = _event_bounds(data.starts_at, data.ends_at, data.all_day)
     item = Item(kind="event", title=data.title.strip(), status="ready", tags=clean_tags(data.tags), entities={},
                 project_id=data.project_id)
@@ -266,8 +302,10 @@ def create_event(db: Session, data: EventIn) -> Item:
         description=data.description, rrule=data.rrule, repeat_until=repeat_until(data.rrule, starts_at),
         remind_minutes=data.remind_minutes,
     )
+    item.event.calendar = cal
     db.add(item)
     db.flush()
+    _push(db, item)
     schedule_index(db, item.id)
     db.commit()
     return item
@@ -275,11 +313,17 @@ def create_event(db: Session, data: EventIn) -> Item:
 
 def update_event(db: Session, item: Item, changes: dict) -> Item:
     e = item.event
-    if e.calendar.source != "local":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Este evento viene de un calendario sincronizado")
+    if not _can_write(e.calendar):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Este evento viene de un calendario de solo lectura")
     check_project(db, changes.get("project_id"))
-    if "calendar_id" in changes and changes["calendar_id"]:
-        e.calendar_id = _local_calendar(db, changes["calendar_id"]).id
+    if changes.get("calendar_id") and changes["calendar_id"] != e.calendar_id:
+        target = _writable_calendar(db, changes["calendar_id"])
+        if target.source != e.calendar.source or target.source == "google":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Para pasarlo a otro calendario, crea el evento allí y borra este")
+        e.calendar_id = target.id
+    if (item.entities or {}).get("recurring_event_id"):
+        changes.pop("rrule", None)  # una ocurrencia de un evento repetido de Google
     for key in ("location", "description", "rrule", "remind_minutes"):
         if key in changes:
             setattr(e, key, changes[key])
@@ -301,9 +345,26 @@ def update_event(db: Session, item: Item, changes: dict) -> Item:
     if "project_id" in changes:
         item.project_id = changes["project_id"]
     item.updated_at = datetime.now(UTC)
+    db.flush()
+    _push(db, item)
     schedule_index(db, item.id)
     db.commit()
     return item
+
+
+def delete_event(db: Session, item: Item) -> None:
+    cal = item.event.calendar
+    if not _can_write(cal):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Bórralo en el calendario original")
+    if cal.source == "google":
+        from app.services.google import GoogleError, delete_remote_event
+
+        try:
+            delete_remote_event(db, item)
+        except GoogleError as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Calendar: {exc}") from None
+    db.delete(item)
+    db.commit()
 
 
 def event_out(occ: Occurrence) -> EventOut:
@@ -312,7 +373,8 @@ def event_out(occ: Occurrence) -> EventOut:
         id=item.id, title=item.title, calendar_id=occ.calendar.id, color=occ.calendar.color,
         source=occ.calendar.source, starts_at=occ.starts_at, ends_at=occ.ends_at, all_day=e.all_day,
         location=e.location, description=e.description, rrule=e.rrule, remind_minutes=e.remind_minutes,
-        tags=item.tags, project_id=item.project_id, recurring=occ.recurring,
+        tags=item.tags, project_id=item.project_id, recurring=occ.recurring or bool((item.entities or {}).get("recurring_event_id")),
+        url=e.url, meet_url=e.meet_url, writable=_can_write(occ.calendar),
     )
 
 

@@ -96,6 +96,8 @@ def update_prefs(body: PrefsUpdate, session: UserSession = Depends(current_sessi
                  settings: Settings = Depends(get_settings)):
     account = get_account(db)
     account.prefs = {**(account.prefs or {}), **body.model_dump(exclude_none=True)}
+    if account.prefs.get("default_calendar_id") == "":
+        account.prefs = {k: v for k, v in account.prefs.items() if k != "default_calendar_id"}
     db.commit()
     return me(session, db, settings)
 

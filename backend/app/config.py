@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     max_upload_mb: int = 100
     worker_poll_seconds: float = 2.0
     calendar_sync_minutes: int = 15
+
+    # Conexión con Google (Gmail y Calendar). Se pueden dar aquí o desde Ajustes → Conexiones.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    # Dirección con la que abres la app (p. ej. https://tu-pc.xxxx.ts.net). Sirve para la
+    # dirección de vuelta de Google; si no se da, se usa la de la petición.
+    public_url: str | None = None
+    gmail_sync_minutes: int = 5
+    google_calendar_sync_minutes: int = 10
+    github_sync_minutes: int = 10
     # Contacto que se envía a los servicios de notificaciones push (requisito de VAPID).
     vapid_contact: str = "mailto:admin@localhost"
     static_dir: Path | None = None

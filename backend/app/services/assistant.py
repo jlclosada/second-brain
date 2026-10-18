@@ -25,7 +25,7 @@ MAX_STEPS = 10
 FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
 
 SYSTEM_PROMPT = """Eres el asistente del "segundo cerebro" de una persona: su archivo de documentos,
-notas, tareas, calendario y recordatorios. Respondes en español, breve y directo.
+notas, tareas, calendario (sincronizado con Google Calendar), correo de Gmail, issues de GitHub y recordatorios. Respondes en español, breve y directo.
 
 - Para responder sobre su vida, documentos o agenda, consulta primero con las herramientas; no supongas.
 - Cuando uses información de un elemento, nómbralo por su título para que pueda abrirlo.
@@ -57,10 +57,13 @@ _S = {"type": "string"}
 _NS = {"type": ["string", "null"]}
 
 TOOLS = [
-    _tool("buscar", "Busca en todo el segundo cerebro (documentos, notas, tareas y eventos) por palabras y significado. "
-          "Devuelve los elementos más relevantes con un fragmento.",
-          {"consulta": _S, "tipo": {"type": ["string", "null"], "enum": ["document", "note", "task", "event", None]}},
+    _tool("buscar", "Busca en todo el segundo cerebro (documentos, notas, tareas, eventos y correos) por palabras y "
+          "significado. Devuelve los elementos más relevantes con un fragmento.",
+          {"consulta": _S,
+           "tipo": {"type": ["string", "null"], "enum": ["document", "note", "task", "event", "email", None]}},
           ["consulta", "tipo"]),
+    _tool("correo_pendiente", "Correos de la bandeja de entrada de Gmail que requieren atención (sin leer, importantes "
+          "o destacados en Principal), del más reciente al más antiguo.", {}, []),
     _tool("ver_elemento", "Lee el contenido completo de un elemento por su id (texto del documento, cuerpo de la nota…).",
           {"id": _S}, ["id"]),
     _tool("agenda", "Eventos y tareas con fecha entre dos días (ambos incluidos). Fechas AAAA-MM-DD.",
@@ -81,7 +84,8 @@ TOOLS = [
     _tool("escribir_en_diario", "Añade un párrafo a la entrada del diario de hoy.", {"texto": _S}, ["texto"]),
 ]
 
-_LINKS = {"document": "/documentos/{id}", "note": "/notas/{id}", "task": "/tareas?t={id}", "event": "/calendario?evento={id}"}
+_LINKS = {"document": "/documentos/{id}", "note": "/notas/{id}", "task": "/tareas?t={id}",
+          "event": "/calendario?evento={id}", "email": "/bandeja?correo={id}"}
 
 
 def _link(item: Item) -> str:
@@ -135,6 +139,9 @@ class Toolbox:
             data |= brain.task_out(item).model_dump(mode="json")
         elif item.kind == "event":
             data |= brain.event_item_out(item).model_dump(mode="json")
+        elif item.kind == "email" and item.email:
+            data |= {"de": item.email.sender_name or item.email.sender_email, "extracto": item.email.snippet,
+                     "recibido": _fmt_dt(item.email.received_at)}
         self.actions.append(ChatAction(tool="ver_elemento", summary=f"Leyó «{item.title}»", link=_link(item)))
         return data
 
@@ -151,6 +158,15 @@ class Toolbox:
                                              .where(Task.due_date.between(first, last)).order_by(Task.due_date))]
         self.actions.append(ChatAction(tool="agenda", summary=f"Consultó la agenda del {desde} al {hasta}"))
         return {"eventos": events, "tareas": tasks}
+
+    def t_correo_pendiente(self) -> list[dict]:
+        from app.routers.integrations import inbox_list
+
+        emails = inbox_list(self.db, "attention", 25)
+        self.actions.append(ChatAction(tool="correo_pendiente", summary=f"Revisó el correo: {len(emails)} pendientes",
+                                       link="/bandeja"))
+        return [{"id": str(e.item_id), "asunto": e.item.title, "de": e.sender_name or e.sender_email,
+                 "recibido": _fmt_dt(e.received_at), "extracto": e.snippet, "sin_leer": e.unread} for e in emails]
 
     def t_tareas_pendientes(self) -> list[dict]:
         rows = self.db.execute(

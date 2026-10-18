@@ -6,11 +6,27 @@ calendario; buscas «seguro de coche 2024» y aparece la póliza.
 
 ## Qué hace
 
-**Hoy.** La pantalla de inicio: la fecha, qué tienes y qué viene después, el hilo del día con tus
-eventos y la hora actual, las tareas vencidas y de hoy, los recordatorios, los documentos que
-vencen pronto, tu diario del día y tus notas fijadas.
+Cinco secciones, iguales en el ordenador y en el móvil: **Hoy**, **Bandeja**, **Calendario**,
+**Tareas** y **Biblioteca** (notas, diario, documentos y proyectos). El asistente, los avisos y los
+ajustes están siempre a mano arriba (móvil) o abajo en la barra lateral (ordenador).
 
-**Captura rápida.** Botón + (o ⌘K / Ctrl+K) y escribe como hablas:
+**Hoy.** Lo que toca: lo siguiente en tu agenda (con botón para unirte a la videollamada), tareas
+vencidas y de hoy, el correo que requiere respuesta, los PR que te piden revisar en GitHub, los
+recordatorios y vencimientos, tu diario y tus notas fijadas. Arriba, la caja para apuntar.
+
+**Bandeja.** Tu Gmail, con lo importante primero: «Requiere atención» (sin leer, importante o
+destacado en Principal), Principal, notificaciones y promociones. De cada correo: crear tarea (con
+enlace al correo), archivar (también en Gmail), marcar como leído o abrirlo en Gmail.
+
+**Conexiones.** En Ajustes → Conexiones:
+- **Google**: Gmail (últimos 30 días de la bandeja, cada 5 minutos) y Google Calendar en los dos
+  sentidos (cada 10 minutos; lo que creas, editas o borras aquí se hace también en Google, al momento).
+  Hace falta crear una vez un cliente OAuth en Google Cloud; la propia pantalla te guía paso a paso.
+- **GitHub**: con un token, los PR en los que te piden revisión y los issues asignados aparecen como
+  tareas, y se marcan como hechos al cerrarse.
+
+**Captura rápida.** La caja de Hoy, el botón + o la tecla C. Escribe como hablas y verás antes de
+guardar en qué se convierte; si se equivoca, toca Tarea, Evento, Aviso o Nota:
 - «Cena con Laura el viernes a las 21h» → evento
 - «Pagar el IBI el 5 de noviembre #casa !» → tarea con fecha, etiqueta y prioridad alta
 - «Recuérdame sacar la ropa en 2 horas» → aviso en el móvil
@@ -20,9 +36,9 @@ Con clave de Claude lo interpreta Claude Haiku; sin ella, un intérprete propio 
 («mañana por la tarde», «el 3/11 a las 9:15», «de 10 a 12 el lunes», «la próxima semana»…).
 
 **Calendario.** Vistas de día, semana, mes y agenda. Eventos con repetición (cada semana, cada mes…)
-y aviso previo. Conecta Google Calendar, iCloud u Outlook con su enlace privado iCal (se guarda
-cifrado y se sincroniza cada 15 minutos). Y al revés: un enlace privado para ver tus eventos en el
-calendario del móvil.
+y aviso previo. Google Calendar se conecta con tu cuenta (lectura y escritura); iCloud u Outlook, con
+su enlace privado iCal (solo lectura, cifrado, cada 15 minutos). Y al revés: un enlace privado para
+ver tus eventos en el calendario del móvil.
 
 **Tareas.** Hoy, próximas, sin fecha, todas y hechas. Fecha y hora, prioridad, repetición (al
 completarla salta a la siguiente fecha), etiquetas y proyecto.
@@ -36,11 +52,11 @@ cocina») y áreas permanentes («Salud», «Casa»).
 **Documentos.** Sube PDFs (también escaneados), fotos, Word o texto. Se leen con OCR, se
 clasifican (tipo, categoría, año, vencimiento, entidades) y se avisa antes de que venzan.
 
-**Búsqueda.** Una sola búsqueda para todo, por palabras y por significado: «coche» encuentra
+**Búsqueda.** ⌘K (o /). Una sola búsqueda para todo, también tus correos,, por palabras y por significado: «coche» encuentra
 «automóvil» y «poliza» encuentra «póliza». Un año en la búsqueda filtra por ese año.
 
 **Asistente.** Conversa con Claude, que consulta tu segundo cerebro y actúa: «¿qué tengo esta
-semana?», «¿cuándo vence el seguro del coche?», «apúntame el dentista el jueves a las 10»,
+semana?», «¿qué correos tengo pendientes?», «¿cuándo vence el seguro del coche?», «apúntame el dentista el jueves a las 10»,
 «resume lo que escribí en el diario estos días». Enseña qué ha consultado o creado, con enlaces.
 
 **Avisos.** Notificaciones push en el móvil y en el ordenador: recordatorios, eventos próximos,
@@ -57,7 +73,9 @@ tareas con hora, vencimientos (30, 7 y 1 día antes) y un resumen del día cada 
   la cookie es `HttpOnly`, `SameSite=Lax` y `Secure` con HTTPS.
 - **Cabeceras de seguridad**: CSP estricta, `nosniff`, `frame-ancestors`, HSTS con HTTPS.
 - Los archivos HTML/SVG subidos se sirven aislados (`CSP: sandbox`) para que no ejecuten nada.
-- Los enlaces iCal y la semilla TOTP se guardan **cifrados**.
+- Los enlaces iCal, la semilla TOTP y los tokens de Google y GitHub se guardan **cifrados**.
+- El permiso de Google se pide con un estado firmado y atado a tu sesión; desconectar revoca el
+  permiso en Google y borra de aquí los correos y eventos traídos de allí.
 - **Registro de actividad**: entradas, fallos, cambios de contraseña…
 - Los contenedores corren **sin root**.
 
@@ -169,6 +187,8 @@ backend/app/
     brain.py           crear y modificar notas, tareas, eventos y recordatorios
     capture.py, when.py  captura rápida y fechas en español
     calendar.py        ocurrencias, sincronización iCal y feed
+    google.py          OAuth, Gmail y Google Calendar (lectura y escritura)
+    github.py          issues y PR → tareas
     scheduler.py       avisos, resumen del día, sincronizaciones
     notify.py          avisos en la app y Web Push
     assistant.py       Claude con herramientas
@@ -176,13 +196,13 @@ backend/app/
     indexing.py, search.py  indexado y búsqueda híbrida (RRF)
     extract.py, classify.py, pipeline.py  documentos
 frontend/src/
-  pages/               Hoy, Calendario, Tareas, Notas, Diario, Documentos, Proyectos,
-                       Buscar, Asistente, Ajustes
-  components/          Shell, paleta ⌘K, hilo del día, editores
+  pages/               Hoy, Bandeja, Calendario, Tareas, Notas, Diario, Documentos,
+                       Proyectos, Buscar, Asistente, Ajustes
+  components/          Shell, captura, búsqueda ⌘K, conexiones, hilo del día, editores
 ```
 
 ## Próximas ideas
 
 - Captura por email y carpeta vigilada; notas de voz.
 - Hábitos y resumen semanal.
-- Escribir en Google Calendar (hoy la sincronización es de lectura).
+- Responder correos desde la app (hoy se abre Gmail).

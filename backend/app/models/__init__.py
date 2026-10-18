@@ -1,3 +1,4 @@
+from app.models.integrations import Email, Integration
 from app.models.items import CATEGORIES, KINDS, Chunk, Document, Item, ItemLink
 from app.models.planning import Calendar, Event, Note, Project, Reminder, Task
 from app.models.system import (
@@ -20,7 +21,9 @@ __all__ = [
     "Chunk",
     "Conversation",
     "Document",
+    "Email",
     "Event",
+    "Integration",
     "Item",
     "ItemLink",
     "Job",

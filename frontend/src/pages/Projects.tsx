@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button, colorVar, cx, Empty, Field, Input, Loading, PageHeader, Segmented, Sheet, Textarea } from "../components/ui";
 import { api, COLORS, type Color, type Project } from "../lib/api";
 import { GoLink, Page, Shared } from "../lib/nav";
+import LibraryTabs from "../components/LibraryTabs";
 
 export function ColorPicker({ value, onChange }: { value: Color; onChange: (c: Color) => void }) {
   return (
@@ -117,6 +118,7 @@ export default function ProjectsPage() {
 
   return (
     <Page>
+      <LibraryTabs />
       <PageHeader title="Proyectos y áreas" sub="Agrupa tareas, notas y documentos de un mismo asunto.">
         <Button variant="primary" onClick={() => setCreating(true)}>
           <Plus size={17} /> Nuevo

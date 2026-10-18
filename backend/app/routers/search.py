@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api", tags=["search"], dependencies=[Depends(require
 def search_endpoint(
     q: str,
     category: str | None = None,
-    kind: Literal["document", "note", "task", "event"] | None = None,
+    kind: Literal["document", "note", "task", "event", "email"] | None = None,
     limit: int = 20,
     db: Session = Depends(get_db),
 ):

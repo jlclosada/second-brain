@@ -1,12 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing, CalendarPlus, FileWarning, Pin } from "lucide-react";
+import { differenceInMinutes, parseISO } from "date-fns";
+import { BellRing, CalendarPlus, ChevronRight, FileWarning, GitPullRequest, MapPin, Pin, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { CaptureBox } from "../components/Capture";
+import { ConnectGoogleCard, EmailRow } from "../components/EmailParts";
 import { CompactThread, DayThread, EventSheet, eventToDraft, newEventDraft, type EventDraft } from "../components/EventParts";
-import { QuickAddTask, TaskRow, TaskSheet } from "../components/TaskParts";
-import { Button, cx, Empty, IconButton, Loading, Section } from "../components/ui";
-import { api, type Task } from "../lib/api";
+import { TaskRow, TaskSheet } from "../components/TaskParts";
+import { Button, colorVar, cx, Empty, IconButton, Loading, Section } from "../components/ui";
+import { api, type CalEvent, type Task } from "../lib/api";
 import { capitalize, dayFromIso, fmt, relativeDay, time } from "../lib/dates";
 import { GoLink, Page } from "../lib/nav";
 
@@ -52,12 +55,63 @@ function JournalBox({ body, day }: { body: string; day: string }) {
       />
       <div className="flex items-center justify-between border-t border-line px-4 py-1.5 text-xs text-faint">
         <span aria-live="polite">{state === "saving" ? "Guardando…" : state === "saved" ? "Guardado" : "Se guarda solo"}</span>
-        <GoLink to={`/diario/${day}`} className="hover:text-ink">
-          Abrir el diario
-        </GoLink>
       </div>
     </div>
   );
+}
+
+/** Lo que está pasando ahora o lo siguiente que viene hoy, con acceso directo a la videollamada. */
+function NextUp({ events, onOpen }: { events: CalEvent[]; onOpen: (e: CalEvent) => void }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const timed = events.filter((e) => !e.all_day && parseISO(e.ends_at) > now);
+  const current = timed.find((e) => parseISO(e.starts_at) <= now);
+  const next = current ?? timed[0];
+  if (!next) return null;
+  const minutes = differenceInMinutes(parseISO(next.starts_at), now);
+  const label = current
+    ? `Ahora, hasta las ${time(next.ends_at)}`
+    : minutes < 1
+      ? "Empieza ya"
+      : minutes < 60
+        ? `En ${minutes} min, a las ${time(next.starts_at)}`
+        : `A las ${time(next.starts_at)}`;
+  const soon = !!current || minutes <= 15;
+
+  return (
+    <div className={cx("mb-8 flex items-stretch gap-4 rounded-2xl border bg-surface p-4", soon ? "border-ochre/60" : "border-line")}>
+      <span className="w-1.5 shrink-0 rounded-full" style={{ background: colorVar(next.color) }} aria-hidden />
+      <button type="button" onClick={() => onOpen(next)} className="min-w-0 flex-1 text-left">
+        <p className={cx("text-sm font-medium", soon ? "text-ochre" : "text-muted")}>{label}</p>
+        <p className="truncate text-lg font-semibold">{next.title}</p>
+        {next.location && (
+          <p className="flex items-center gap-1 truncate text-sm text-muted">
+            <MapPin size={13} className="shrink-0" /> {next.location}
+          </p>
+        )}
+      </button>
+      {next.meet_url && (
+        <a
+          href={next.meet_url}
+          target="_blank"
+          rel="noreferrer"
+          className={cx(
+            "inline-flex shrink-0 items-center gap-1.5 self-center rounded-lg px-3.5 py-2 text-sm font-medium",
+            soon ? "bg-moss text-white dark:text-paper" : "border border-line hover:bg-sunken",
+          )}
+        >
+          <Video size={16} /> Unirse
+        </a>
+      )}
+    </div>
+  );
+}
+
+function plural(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 export default function TodayPage() {
@@ -79,52 +133,50 @@ export default function TodayPage() {
   const d = today.data;
   const day = dayFromIso(d.date);
   const pending = d.overdue.length + d.due_today.length;
-  const firstEvent = d.events.find((e) => !e.all_day && new Date(e.ends_at) > now);
+  const mail = d.inbox?.counts.attention ?? 0;
+  const reviews = d.github.reviews.length;
+  const google = d.connections.google;
 
-  const summary = [
-    d.events.length ? `${d.events.length} ${d.events.length === 1 ? "evento" : "eventos"}` : "sin eventos",
-    pending ? `${pending} ${pending === 1 ? "tarea" : "tareas"}` : "ninguna tarea pendiente",
-  ].join(" y ");
+  const parts = [
+    d.events.length ? plural(d.events.length, "evento", "eventos") : "ningún evento",
+    pending ? plural(pending, "tarea", "tareas") : "ninguna tarea pendiente",
+  ];
+  if (d.inbox) parts.push(mail ? plural(mail, "correo por atender", "correos por atender") : "la bandeja al día");
+  if (reviews) parts.push(plural(reviews, "revisión en GitHub", "revisiones en GitHub"));
+  const summary = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} y ${parts.at(-1)}` : parts[0];
+  const openEvent = (e: CalEvent) => setEvent(eventToDraft(e));
 
   return (
     <Page>
-      <div className="grid gap-x-12 gap-y-8 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0">
-          <header className="mb-8">
-            <p className="text-muted">{greeting(now)}.</p>
-            <h1 className="font-display text-[2.6rem] leading-[1.05] font-semibold sm:text-[3.4rem]">{capitalize(fmt(day, "EEEE d 'de' MMMM"))}</h1>
-            <p className="mt-2 text-lg text-muted">
-              Hoy tienes {summary}
-              {firstEvent && (
-                <>
-                  . Lo siguiente: <span className="text-ink">{firstEvent.title}</span> a las {time(firstEvent.starts_at)}
-                </>
-              )}
-              .
-            </p>
-          </header>
+      <header className="mb-6">
+        <p className="text-muted">{greeting(now)}.</p>
+        <h1 className="font-display text-[2.3rem] leading-[1.05] font-semibold sm:text-[3.2rem]">{capitalize(fmt(day, "EEEE d 'de' MMMM"))}</h1>
+        <p className="mt-2 text-lg text-muted">Hoy tienes {summary}.</p>
+      </header>
 
+      <div className="mb-6">
+        <CaptureBox />
+      </div>
+
+      {(google === "off" || google === "reconnect") && (
+        <div className="mb-8">
+          <ConnectGoogleCard status={google} />
+        </div>
+      )}
+
+      <NextUp events={d.events} onOpen={openEvent} />
+
+      <div className="grid gap-x-12 gap-y-2 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0">
           {/* Agenda del día en móvil (en escritorio va en la columna derecha) */}
           <Section title="Agenda" className="xl:hidden" action={<AddEvent onClick={() => setEvent(newEventDraft(day, now.getHours() + 1))} />}>
-            {d.events.length ? (
-              <CompactThread events={d.events} onOpen={(e) => setEvent(eventToDraft(e))} />
-            ) : (
-              <p className="text-muted">Nada en el calendario. Día libre.</p>
-            )}
+            {d.events.length ? <CompactThread events={d.events} onOpen={openEvent} /> : <p className="text-muted">Nada en el calendario. Día libre.</p>}
           </Section>
 
-          <Section
-            title="Tareas"
-            action={
-              <GoLink to="/tareas" className="text-sm text-cobalt">
-                Ver todas
-              </GoLink>
-            }
-          >
-            <QuickAddTask placeholder="Añade una tarea: «llamar al taller el martes»…" />
+          <Section title={pending ? `Tareas · ${pending}` : "Tareas"} action={<SeeAll to="/tareas" label="Todas las tareas" />}>
             {d.overdue.length > 0 && (
               <>
-                <p className="mt-4 mb-1 text-sm font-medium text-clay">Vencidas</p>
+                <p className="mt-1 mb-1 text-sm font-medium text-clay">Vencidas</p>
                 <ul className="divide-y divide-line">
                   {d.overdue.map((t) => (
                     <TaskRow key={t.id} task={t} onOpen={setTask} />
@@ -143,12 +195,56 @@ export default function TodayPage() {
               </>
             ) : (
               !d.overdue.length && (
-                <p className="mt-3 text-muted">
-                  {d.counts.done_today ? `Has completado ${d.counts.done_today} hoy. Todo al día.` : "Nada pendiente para hoy."}
+                <p className="text-muted">
+                  {d.counts.done_today
+                    ? `Has completado ${d.counts.done_today} hoy. Todo al día.`
+                    : "Nada pendiente para hoy. Apunta arriba lo que se te ocurra."}
                 </p>
               )
             )}
           </Section>
+
+          {d.inbox && (
+            <Section title={mail ? `Correo por atender · ${mail}` : "Correo"} action={<SeeAll to="/bandeja" label="Ir a la bandeja" />}>
+              {d.inbox.emails.length ? (
+                <ul className="divide-y divide-line">
+                  {d.inbox.emails.slice(0, 5).map((e) => (
+                    <EmailRow key={e.id} email={e} dense />
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted">Nada sin leer ni importante en Principal. Bandeja al día.</p>
+              )}
+              {d.inbox.error && <p className="mt-2 text-sm text-clay">Gmail: {d.inbox.error}</p>}
+            </Section>
+          )}
+
+          {d.github.connected && (reviews > 0 || d.github.assigned.length > 0) && (
+            <Section title="GitHub" action={<SeeAll to="/tareas?etiqueta=github" label="Ver en tareas" />}>
+              {reviews > 0 && (
+                <>
+                  <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-ochre">
+                    <GitPullRequest size={14} /> Te piden revisión
+                  </p>
+                  <ul className="mb-3 divide-y divide-line">
+                    {d.github.reviews.map((t) => (
+                      <TaskRow key={t.id} task={t} onOpen={setTask} />
+                    ))}
+                  </ul>
+                </>
+              )}
+              {d.github.assigned.length > 0 && (
+                <>
+                  <p className="mb-1 text-sm font-medium text-muted">Asignado a ti</p>
+                  <ul className="divide-y divide-line">
+                    {d.github.assigned.slice(0, 6).map((t) => (
+                      <TaskRow key={t.id} task={t} onOpen={setTask} />
+                    ))}
+                  </ul>
+                </>
+              )}
+            </Section>
+          )}
 
           {(d.reminders.length > 0 || d.expiring.length > 0) && (
             <Section title="No lo olvides">
@@ -184,19 +280,12 @@ export default function TodayPage() {
             </Section>
           )}
 
-          <Section title="Diario">
+          <Section title="Diario" action={<SeeAll to={`/diario/${d.date}`} label="Abrir el diario" />}>
             <JournalBox body={d.journal?.body ?? ""} day={d.date} />
           </Section>
 
           {d.pinned_notes.length > 0 && (
-            <Section
-              title="Notas fijadas"
-              action={
-                <GoLink to="/notas" className="text-sm text-cobalt">
-                  Todas las notas
-                </GoLink>
-              }
-            >
+            <Section title="Notas fijadas" action={<SeeAll to="/notas" label="Todas las notas" />}>
               <ul className="grid gap-x-6 sm:grid-cols-2">
                 {d.pinned_notes.map((n) => (
                   <li key={n.id} className="border-t border-line">
@@ -212,11 +301,14 @@ export default function TodayPage() {
             </Section>
           )}
 
-          {!me.data?.ai_enabled && (
-            <p className="text-sm text-faint">
-              Sin clave de Claude: la captura y la clasificación usan reglas. Añade ANTHROPIC_API_KEY para activar el asistente.
-            </p>
-          )}
+          <footer className="flex flex-col gap-1 text-sm text-faint">
+            {d.connections.github === "off" && (
+              <GoLink to="/ajustes?seccion=conexiones" className="hover:text-ink">
+                Conecta GitHub para ver aquí los PR que te piden revisar →
+              </GoLink>
+            )}
+            {!me.data?.ai_enabled && <p>Sin clave de Claude: la captura usa reglas y el asistente está apagado. Añade ANTHROPIC_API_KEY en .env.</p>}
+          </footer>
         </div>
 
         {/* El hilo del día (escritorio) */}
@@ -226,7 +318,7 @@ export default function TodayPage() {
               <h2 className="text-lg font-semibold">El día</h2>
               <AddEvent onClick={() => setEvent(newEventDraft(day, now.getHours() + 1))} />
             </div>
-            <DayThread events={d.events} day={day} onOpen={(e) => setEvent(eventToDraft(e))} />
+            <DayThread events={d.events} day={day} onOpen={openEvent} />
           </div>
         </aside>
       </div>
@@ -234,6 +326,14 @@ export default function TodayPage() {
       <TaskSheet task={task} onClose={() => setTask(null)} />
       <EventSheet draft={event} onClose={() => setEvent(null)} />
     </Page>
+  );
+}
+
+function SeeAll({ to, label }: { to: string; label: string }) {
+  return (
+    <GoLink to={to} className="inline-flex items-center gap-0.5 text-sm text-cobalt">
+      {label} <ChevronRight size={14} />
+    </GoLink>
   );
 }
 

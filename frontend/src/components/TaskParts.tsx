@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Flag, Repeat, Trash2 } from "lucide-react";
+import { Check, Flag, GitPullRequest, Mail, Repeat, Trash2 } from "lucide-react";
 import { useState, ViewTransition, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -73,6 +73,18 @@ export function TaskRow({ task, onOpen, showProjectColor }: { task: Task; onOpen
             </span>
           )}
         </button>
+        {task.external_url && (
+          <a
+            href={task.external_url}
+            target="_blank"
+            rel="noreferrer"
+            title={task.source === "github" ? "Abrir en GitHub" : "Abrir el correo en Gmail"}
+            aria-label={task.source === "github" ? `Abrir «${task.title}» en GitHub` : `Abrir el correo de «${task.title}»`}
+            className="-my-1 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-sunken hover:text-cobalt"
+          >
+            {task.source === "github" ? <GitPullRequest size={16} /> : <Mail size={16} />}
+          </a>
+        )}
         {showProjectColor && <Dot color={showProjectColor} className="mt-2" />}
         {task.priority > 0 && (
           <Flag size={15} className={cx("mt-1 shrink-0", PRIORITY_COLOR[task.priority])} aria-label={`Prioridad ${PRIORITY[task.priority].toLowerCase()}`} />

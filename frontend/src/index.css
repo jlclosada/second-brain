@@ -182,6 +182,13 @@ mark {
   scrollbar-color: var(--line) transparent;
 }
 
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Texto de notas y respuestas del asistente */
 .prose-brain {
   line-height: 1.65;

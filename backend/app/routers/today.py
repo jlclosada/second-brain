@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Item, Note, Reminder, Task
-from app.schemas import CaptureIn, CaptureOut, ExpiringDoc, TodayOut
+from app.models import Integration, Item, Note, Reminder, Task
+from app.routers.integrations import email_out, inbox_counts, inbox_list, task_from_github
+from app.schemas import CaptureIn, CaptureOut, ExpiringDoc, GitHubToday, InboxOut, TodayOut
 from app.security import require_user
-from app.services import brain
+from app.services import brain, google
 from app.services.calendar import events_between, local_day_bounds
 from app.services.capture import capture
 
@@ -61,16 +62,40 @@ def today(db: Session = Depends(get_db), settings: Settings = Depends(get_settin
         select(func.count()).select_from(Task).where(Task.done_at >= start, Task.done_at < end)
     ) or 0
 
+    g = db.get(Integration, "google")
+    gh = db.get(Integration, "github")
+    connections = {
+        "google": _status(g), "github": _status(gh),
+        "google_configured": "yes" if google.client_config(db) else "no",
+    }
+    inbox = None
+    if g and g.secret_encrypted:
+        state = g.state or {}
+        inbox = InboxOut(
+            connected=True, account=g.account,
+            synced_at=datetime.fromisoformat(state["gmail_synced_at"]) if state.get("gmail_synced_at") else None,
+            error=state.get("gmail_error"), counts=inbox_counts(db),
+            emails=[email_out(e, g.account) for e in inbox_list(db, "attention", 6)],
+        )
+    gh_today = GitHubToday(connected=bool(gh and gh.secret_encrypted), account=gh.account if gh else None,
+                           **(task_from_github(db) if gh and gh.secret_encrypted else {}))
+
     return TodayOut(
         date=day, timezone=settings.timezone,
         events=[brain.event_out(o) for o in events_between(db, start, end)],
         overdue=overdue, due_today=due_today, reminders=[brain.reminder_out(r) for r in reminders],
         expiring=expiring, journal=brain.note_out(journal) if journal else None,
         pinned_notes=[brain.note_out(i) for i in pinned], recent=[brain.link_ref(i) for i in recent],
-        counts=counts,
+        counts=counts, inbox=inbox, github=gh_today, connections=connections,
     )
+
+
+def _status(row: Integration | None) -> str:
+    if row is None or not row.secret_encrypted:
+        return "off"
+    return row.status
 
 
 @router.post("/capture", response_model=CaptureOut)
 def capture_endpoint(body: CaptureIn, db: Session = Depends(get_db)):
-    return capture(db, body.text, commit=body.commit)
+    return capture(db, body.text, commit=body.commit, kind=body.kind)

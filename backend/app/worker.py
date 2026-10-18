@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import SessionLocal, engine
-from app.services import calendar, indexing, jobs, pipeline, scheduler  # noqa: F401  registran sus trabajos
+from app.services import calendar, github, google, indexing, jobs, pipeline, scheduler  # noqa: F401  registran sus trabajos
 
 log = logging.getLogger("worker")
 _running = True

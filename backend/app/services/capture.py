@@ -124,17 +124,27 @@ def _t(value: str | None) -> time | None:
         return None
 
 
-def capture(db: Session, text: str, commit: bool = True) -> CaptureOut:
+def capture(db: Session, text: str, commit: bool = True, kind: str | None = None) -> CaptureOut:
     parsed, by = interpret(text)
+    if kind and kind != parsed.kind:
+        if kind == "note" and not parsed.body:
+            parsed.body = text
+        parsed.kind = kind
     tz = get_settings().tz
     day, at, end = _d(parsed.date), _t(parsed.time), _t(parsed.end_time)
     out = CaptureOut(kind=parsed.kind, title=parsed.title, tags=brain.clean_tags(parsed.tags),
                      priority=max(0, min(3, parsed.priority)), parsed_by=by)
 
     if parsed.kind == "event" and day is None:
-        out.kind = "task"
+        if kind == "event":
+            day = datetime.now(tz).date()  # lo pediste como evento: hoy, todo el día
+        else:
+            out.kind = "task"
     if parsed.kind == "reminder" and at is None:
-        out.kind = "task"
+        if kind == "reminder":
+            at = (datetime.now(tz) + timedelta(hours=1)).time().replace(second=0, microsecond=0)
+        else:
+            out.kind = "task"
 
     if out.kind == "note":
         out.body = parsed.body or text

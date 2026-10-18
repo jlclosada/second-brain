@@ -255,3 +255,12 @@ def test_projects_group_items(client):
     tasks = client.get("/api/tasks", params={"project_id": project["id"]}).json()
     assert [t["title"] for t in tasks] == ["Pedir presupuesto"]
     assert client.post("/api/tasks", json={"title": "x", "project_id": "00000000-0000-0000-0000-000000000000"}).status_code == 422
+
+
+def test_capture_kind_override(client):
+    r = client.post("/api/capture", json={"text": "Cena con Laura el viernes a las 21h", "commit": False, "kind": "task"})
+    assert r.json()["kind"] == "task" and r.json()["due_date"]
+    r = client.post("/api/capture", json={"text": "comprar pan", "kind": "event"}).json()
+    assert r["kind"] == "event" and r["all_day"] and r["created_id"]
+    r = client.post("/api/capture", json={"text": "el código del trastero es 4512", "kind": "note"}).json()
+    assert r["kind"] == "note" and "4512" in r["body"]

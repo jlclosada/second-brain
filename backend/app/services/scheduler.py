@@ -46,7 +46,7 @@ def event_alerts(db: Session, now: datetime, default_minutes: int) -> None:
         if occ.event.all_day:
             continue
         minutes = occ.event.remind_minutes
-        if minutes is None and occ.calendar.source == "ics":
+        if minutes is None and occ.calendar.source in ("ics", "google"):
             minutes = default_minutes
         if minutes is None:
             continue
@@ -114,6 +114,15 @@ def calendar_sync(db: Session, now: datetime) -> None:
     db.commit()
 
 
+def integrations_sync(db: Session, now: datetime) -> None:
+    from app.services.github import schedule_github_sync
+    from app.services.google import schedule_google_sync
+
+    schedule_google_sync(db, now)
+    schedule_github_sync(db, now)
+    db.commit()
+
+
 def housekeeping(db: Session, now: datetime) -> None:
     jobs.requeue_stale(db)
     jobs.purge_finished(db)
@@ -130,6 +139,7 @@ def tick(db: Session, now: datetime | None = None) -> None:
         lambda: task_alerts(db, now),
         lambda: morning(db, now, p),
         lambda: calendar_sync(db, now),
+        lambda: integrations_sync(db, now),
     ):
         try:
             step()

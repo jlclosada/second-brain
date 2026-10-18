@@ -1,24 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Bot, CalendarDays, CheckSquare, FileText, FolderKanban, LogOut, Menu, NotebookPen, Plus, Search, Settings, Sun } from "lucide-react";
+import { Bell, Bot, CalendarDays, CheckSquare, Inbox, Library, Plus, Search, Settings, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { api } from "../lib/api";
+import { CaptureDialog } from "./Capture";
 import CommandPalette from "./CommandPalette";
+import { LIBRARY_PATHS } from "./LibraryTabs";
 import Notifications from "./Notifications";
-import { cx, IconButton, Sheet } from "./ui";
+import { cx, IconButton } from "./ui";
 
-const NAV = [
-  { to: "/", label: "Hoy", icon: Sun, end: true },
+// Cinco secciones, siempre las mismas en el ordenador y en el móvil:
+//   Hoy        lo que toca ahora (agenda, tareas, correo, GitHub)
+//   Bandeja    el correo de Gmail que requiere atención
+//   Calendario tu agenda (propia y de Google)
+//   Tareas     todo lo que tienes que hacer
+//   Biblioteca lo que guardas para consultar: notas, diario, documentos, proyectos
+type NavItem = { to: string; label: string; icon: typeof Sun; end?: boolean; match?: string[] };
+
+const NAV: NavItem[] = [
+  { to: "/", label: "Hoy", icon: Sun, end: true, match: ["/hoy"] },
+  { to: "/bandeja", label: "Bandeja", icon: Inbox },
   { to: "/calendario", label: "Calendario", icon: CalendarDays },
   { to: "/tareas", label: "Tareas", icon: CheckSquare },
-  { to: "/notas", label: "Notas", icon: NotebookPen },
-  { to: "/documentos", label: "Documentos", icon: FileText },
-  { to: "/proyectos", label: "Proyectos y áreas", icon: FolderKanban },
-  { to: "/asistente", label: "Asistente", icon: Bot },
+  { to: "/notas", label: "Biblioteca", icon: Library, match: LIBRARY_PATHS },
 ];
-
-const MOBILE = [NAV[0], NAV[1], NAV[2], NAV[3]];
 
 export function BrandMark({ size = 28 }: { size?: number }) {
   // El hilo del día: una línea vertical con el punto del ahora.
@@ -32,47 +38,93 @@ export function BrandMark({ size = 28 }: { size?: number }) {
   );
 }
 
-function SideLink({ to, label, icon: Icon, end }: (typeof NAV)[number]) {
+function useActive(item: NavItem) {
+  const { pathname } = useLocation();
+  if (item.end) return pathname === item.to || !!item.match?.some((m) => pathname === m);
+  return [item.to, ...(item.match ?? [])].some((m) => pathname === m || pathname.startsWith(`${m}/`));
+}
+
+function Badge({ count, tone = "ochre" }: { count?: number; tone?: "ochre" | "cobalt" }) {
+  if (!count) return null;
+  return (
+    <span
+      className={cx(
+        "ml-auto min-w-5 rounded-full px-1.5 text-center text-xs font-semibold tabular",
+        tone === "ochre" ? "bg-ochre text-ink" : "bg-cobalt text-white dark:text-paper",
+      )}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+function SideLink({ item, badge }: { item: NavItem; badge?: number }) {
+  const active = useActive(item);
+  const Icon = item.icon;
   return (
     <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        cx(
-          "flex h-10 items-center gap-3 rounded-lg px-3 text-[0.95rem] transition-colors",
-          isActive ? "bg-surface font-semibold text-ink shadow-lift" : "text-muted hover:bg-sunken hover:text-ink",
-        )
-      }
+      to={item.to}
+      aria-current={active ? "page" : undefined}
+      className={cx(
+        "flex h-10 items-center gap-3 rounded-lg px-3 text-[0.95rem] transition-colors",
+        active ? "bg-surface font-semibold text-ink shadow-lift" : "text-muted hover:bg-sunken hover:text-ink",
+      )}
     >
       <Icon size={18} strokeWidth={1.9} />
-      {label}
+      {item.label}
+      <Badge count={badge} tone="cobalt" />
+    </NavLink>
+  );
+}
+
+function TabLink({ item, badge }: { item: NavItem; badge?: number }) {
+  const active = useActive(item);
+  const Icon = item.icon;
+  return (
+    <NavLink
+      to={item.to}
+      aria-current={active ? "page" : undefined}
+      className={cx("relative flex flex-col items-center gap-0.5 py-1 text-[0.7rem]", active ? "font-semibold text-ink" : "text-muted")}
+    >
+      <Icon size={22} strokeWidth={active ? 2.3 : 1.8} />
+      {item.label}
+      {!!badge && (
+        <span className="absolute top-0 left-[calc(50%+6px)] min-w-4 rounded-full bg-cobalt px-1 text-center text-[0.62rem] leading-4 font-semibold text-white tabular dark:text-paper">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </NavLink>
   );
 }
 
 export default function Shell({ children }: { children: ReactNode }) {
-  const [palette, setPalette] = useState<{ open: boolean; capture: boolean }>({ open: false, capture: false });
-  const [more, setMore] = useState(false);
+  const [search, setSearch] = useState(false);
+  const [capture, setCapture] = useState(false);
   const [bell, setBell] = useState(false);
   const location = useLocation();
   const unread = useQuery({ queryKey: ["unread"], queryFn: api.unread, refetchInterval: 60_000 });
-
-  useEffect(() => setMore(false), [location.pathname]);
+  // El número de la bandeja: correos que requieren atención.
+  const today = useQuery({ queryKey: ["today"], queryFn: api.today, refetchInterval: 5 * 60_000 });
+  const attention = today.data?.inbox?.counts.attention ?? 0;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement)?.closest("input, textarea, [contenteditable=true]");
+      const typing = (e.target as HTMLElement)?.closest("input, textarea, select, [contenteditable=true]");
+      if (document.querySelector("dialog[open]")) return;
       if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !typing)) {
         e.preventDefault();
-        setPalette({ open: true, capture: false });
+        setSearch(true);
+      } else if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && (e.key === "c" || e.key === "n")) {
+        e.preventDefault();
+        setCapture(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openCapture = () => setPalette({ open: true, capture: true });
   const unreadCount = unread.data?.count ?? 0;
+  const inAssistant = location.pathname.startsWith("/asistente");
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
@@ -91,19 +143,29 @@ export default function Shell({ children }: { children: ReactNode }) {
         </div>
         <button
           type="button"
-          onClick={() => setPalette({ open: true, capture: false })}
+          onClick={() => setCapture(true)}
+          className="mb-2 flex h-11 items-center gap-2 rounded-xl bg-ink px-3.5 text-left font-medium text-paper transition-transform active:scale-[0.98]"
+        >
+          <Plus size={18} />
+          <span className="flex-1">Apuntar algo</span>
+          <kbd className="rounded border border-paper/25 px-1.5 text-[0.7rem] text-paper/70">C</kbd>
+        </button>
+        <button
+          type="button"
+          onClick={() => setSearch(true)}
           className="mb-4 flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-3 text-left text-sm text-faint transition-colors hover:border-muted"
         >
           <Search size={16} />
-          <span className="flex-1">Buscar o capturar</span>
+          <span className="flex-1">Buscar</span>
           <kbd className="rounded border border-line px-1.5 text-[0.7rem] text-muted">⌘K</kbd>
         </button>
         <nav aria-label="Secciones" className="flex flex-col gap-0.5">
           {NAV.map((n) => (
-            <SideLink key={n.to} {...n} />
+            <SideLink key={n.to} item={n} badge={n.to === "/bandeja" ? attention : undefined} />
           ))}
         </nav>
         <div className="mt-auto flex flex-col gap-0.5">
+          <SideLink item={{ to: "/asistente", label: "Asistente", icon: Bot }} />
           <button
             type="button"
             onClick={() => setBell(true)}
@@ -111,40 +173,56 @@ export default function Shell({ children }: { children: ReactNode }) {
           >
             <Bell size={18} strokeWidth={1.9} />
             Avisos
-            {unreadCount > 0 && <span className="ml-auto rounded-full bg-ochre px-1.5 text-xs font-semibold text-ink tabular">{unreadCount}</span>}
+            <Badge count={unreadCount} />
           </button>
-          <SideLink to="/ajustes" label="Ajustes" icon={Settings} />
+          <SideLink item={{ to: "/ajustes", label: "Ajustes y conexiones", icon: Settings }} />
         </div>
       </aside>
 
       {/* Cabecera (móvil) */}
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/90 px-4 py-2.5 backdrop-blur lg:hidden">
-        <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/90 px-3 py-2 backdrop-blur lg:hidden">
+        <div className="flex items-center gap-2 pl-1">
           <BrandMark size={26} />
           <span className="font-display text-base font-semibold">Segundo cerebro</span>
         </div>
         <div className="flex items-center">
-          <IconButton label="Buscar" onClick={() => setPalette({ open: true, capture: false })}>
-            <Search size={19} />
+          <IconButton label="Buscar" onClick={() => setSearch(true)} className="size-10">
+            <Search size={20} />
           </IconButton>
-          <IconButton label={unreadCount ? `Avisos, ${unreadCount} sin leer` : "Avisos"} onClick={() => setBell(true)} className="relative">
-            <Bell size={19} />
-            {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-ochre" />}
+          <NavLink
+            to="/asistente"
+            aria-label="Asistente"
+            title="Asistente"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-muted hover:bg-sunken"
+          >
+            <Bot size={20} />
+          </NavLink>
+          <IconButton label={unreadCount ? `Avisos, ${unreadCount} sin leer` : "Avisos"} onClick={() => setBell(true)} className="relative size-10">
+            <Bell size={20} />
+            {unreadCount > 0 && <span className="absolute top-2 right-2 size-2 rounded-full bg-ochre" />}
           </IconButton>
+          <NavLink
+            to="/ajustes"
+            aria-label="Ajustes y conexiones"
+            title="Ajustes"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-muted hover:bg-sunken"
+          >
+            <Settings size={20} />
+          </NavLink>
         </div>
       </header>
 
-      <main id="contenido" className="mx-auto w-full max-w-[1180px] px-4 pt-5 pb-28 sm:px-6 lg:px-10 lg:pt-9 lg:pb-12">
+      <main id="contenido" className="mx-auto w-full max-w-[1180px] min-w-0 px-4 pt-5 pb-32 sm:px-6 lg:px-10 lg:pt-9 lg:pb-12">
         {children}
       </main>
 
-      {/* Botón de captura (siempre a mano, salvo en el asistente, que tiene su propia caja) */}
-      {!location.pathname.startsWith("/asistente") && (
+      {/* Botón para apuntar (siempre a mano, salvo en el asistente, que tiene su propia caja) */}
+      {!inAssistant && (
         <button
           type="button"
-          onClick={openCapture}
-          aria-label="Capturar algo nuevo"
-          className="fixed right-5 bottom-[calc(76px+env(safe-area-inset-bottom))] z-30 flex size-14 items-center justify-center rounded-2xl bg-ink text-paper shadow-lift transition-transform active:scale-95 lg:right-8 lg:bottom-8"
+          onClick={() => setCapture(true)}
+          aria-label="Apuntar algo nuevo"
+          className="fixed right-4 bottom-[calc(72px+env(safe-area-inset-bottom))] z-30 flex size-14 items-center justify-center rounded-2xl bg-ink text-paper shadow-lift transition-transform active:scale-95 lg:hidden"
         >
           <Plus size={26} />
         </button>
@@ -155,50 +233,14 @@ export default function Shell({ children }: { children: ReactNode }) {
         aria-label="Secciones"
         className="pb-safe fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-line bg-surface/95 pt-1.5 backdrop-blur lg:hidden"
       >
-        {MOBILE.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) => cx("flex flex-col items-center gap-0.5 py-1 text-[0.7rem]", isActive ? "font-semibold text-ink" : "text-muted")}
-          >
-            {({ isActive }) => (
-              <>
-                <Icon size={22} strokeWidth={isActive ? 2.3 : 1.8} />
-                {label}
-              </>
-            )}
-          </NavLink>
+        {NAV.map((n) => (
+          <TabLink key={n.to} item={n} badge={n.to === "/bandeja" ? attention : undefined} />
         ))}
-        <button type="button" onClick={() => setMore(true)} className="flex flex-col items-center gap-0.5 py-1 text-[0.7rem] text-muted">
-          <Menu size={22} strokeWidth={1.8} />
-          Más
-        </button>
       </nav>
 
-      <Sheet open={more} onClose={() => setMore(false)} title="Más">
-        <nav className="flex flex-col gap-0.5">
-          {[
-            ...NAV.slice(4),
-            { to: "/buscar", label: "Buscar", icon: Search },
-            { to: "/diario", label: "Diario", icon: NotebookPen },
-            { to: "/ajustes", label: "Ajustes", icon: Settings },
-          ].map((n) => (
-            <SideLink key={n.to} {...n} />
-          ))}
-          <button
-            type="button"
-            onClick={() => api.logout().finally(() => window.dispatchEvent(new Event("sb:logout")))}
-            className="flex h-10 items-center gap-3 rounded-lg px-3 text-[0.95rem] text-clay hover:bg-clay-soft"
-          >
-            <LogOut size={18} />
-            Cerrar sesión
-          </button>
-        </nav>
-      </Sheet>
-
       <Notifications open={bell} onClose={() => setBell(false)} />
-      <CommandPalette open={palette.open} captureFirst={palette.capture} onClose={() => setPalette({ open: false, capture: false })} />
+      <CommandPalette open={search} onClose={() => setSearch(false)} />
+      <CaptureDialog open={capture} onClose={() => setCapture(false)} />
     </div>
   );
 }
