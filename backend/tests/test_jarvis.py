@@ -56,3 +56,15 @@ def test_stream_reports_missing_key(client):
     with client.stream("POST", "/api/assistant/stream", json={"message": "hola"}) as r:
         events = [json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ")]
     assert events[-1]["type"] == "error" and "ANTHROPIC_API_KEY" in events[-1]["message"]
+
+
+def test_tools_fit_claude_strict_limits():
+    """Claude rechaza (400) más de 16 parámetros opcionales en herramientas estrictas."""
+    def unions(schema: dict) -> int:
+        return sum(1 for prop in schema["properties"].values() if "anyOf" in prop or isinstance(prop.get("type"), list))
+
+    total = sum(unions(t["input_schema"]) for t in assistant.TOOLS if t["strict"])
+    assert total <= assistant.MAX_STRICT_UNIONS, total
+    for t in assistant.TOOLS:
+        if t["strict"]:
+            assert set(t["input_schema"]["required"]) == set(t["input_schema"]["properties"]), t["name"]

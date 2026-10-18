@@ -61,11 +61,17 @@ class AssistantUnavailable(RuntimeError):
     pass
 
 
-def _tool(name: str, description: str, properties: dict, required: list[str]) -> dict:
+# En modo estricto Claude admite como mucho 16 parámetros opcionales (nullable) entre todas las
+# herramientas. Las que tienen muchos opcionales van sin modo estricto: sus opcionales simplemente
+# se pueden omitir (y en Python tienen valor por defecto).
+MAX_STRICT_UNIONS = 16
+
+
+def _tool(name: str, description: str, properties: dict, required: list[str], strict: bool = True) -> dict:
     return {
         "name": name,
         "description": description,
-        "strict": True,
+        "strict": strict,
         "input_schema": {
             "type": "object",
             "properties": properties,
@@ -110,10 +116,10 @@ TOOLS = [
            "aviso_minutos": {"type": ["integer", "null"]}},
           ["titulo", "inicio", "fin", "dia_completo", "lugar", "aviso_minutos"]),
     _tool("cambiar_evento", "Cambia un evento existente por su id (sácalo antes con agenda): título, inicio, fin o lugar. "
-          "Deja a null lo que no cambie. Fechas AAAA-MM-DDTHH:MM (hora local). Si mueves el inicio sin dar fin, "
+          "Omite lo que no cambie. Fechas AAAA-MM-DDTHH:MM (hora local). Si mueves el inicio sin dar fin, "
           "conserva la duración.",
-          {"id": _S, "titulo": _NS, "inicio": _NS, "fin": _NS, "lugar": _NS},
-          ["id", "titulo", "inicio", "fin", "lugar"]),
+          {"id": _S, "titulo": _S, "inicio": _S, "fin": _S, "lugar": _S},
+          ["id"], strict=False),
     _tool("cancelar_evento", "Cancela (borra) un evento del calendario por su id (sácalo antes con agenda). En Google "
           "va a la papelera del calendario. Si es una ocurrencia de un evento repetido, solo cancela esa.",
           {"id": _S}, ["id"]),
@@ -124,12 +130,12 @@ TOOLS = [
           {"nombre": _S}, ["nombre"]),
     _tool("apuntar_sobre_persona", "Apunta algo sobre una persona en su ficha del vault (la crea si no existe). "
           "seccion: 'Historial' (lo que ha hecho o pasado, con fecha), 'Cómo tratarle' (preferencias, tono, cosas a "
-          "tener en cuenta), 'Quién es' (cargo, empresa, contexto) o 'Pendiente'. fecha AAAA-MM-DD (hoy si null). "
+          "tener en cuenta), 'Quién es' (cargo, empresa, contexto) o 'Pendiente'. fecha AAAA-MM-DD (hoy si se omite). "
           "adjuntar=true guarda en la ficha las imágenes que la persona adjuntó en este mensaje. empresa, relacion "
           "(cliente, equipo, proveedor, amigo…) y email solo rellenan campos vacíos de la ficha.",
-          {"nombre": _S, "texto": _S, "seccion": _NS, "fecha": _NS, "adjuntar": {"type": "boolean"},
-           "empresa": _NS, "relacion": _NS, "email": _NS},
-          ["nombre", "texto", "seccion", "fecha", "adjuntar", "empresa", "relacion", "email"]),
+          {"nombre": _S, "texto": _S, "seccion": _S, "fecha": _S, "adjuntar": {"type": "boolean"},
+           "empresa": _S, "relacion": _S, "email": _S},
+          ["nombre", "texto"], strict=False),
     _tool("guardar_documento", "Guarda en Documentos los archivos adjuntos de este mensaje (se leen, se clasifican y "
           "se pueden buscar después).", {}, []),
     _tool("crear_nota", "Guarda una nota en markdown en el vault (en la Bandeja). Enlaza con [[wikilinks]] a lo "
@@ -288,7 +294,8 @@ class Toolbox:
         self.actions.append(ChatAction(tool="crear_evento", summary=f"Añadió «{item.title}» el {when}", link=_link(item)))
         return {"id": str(item.id), "inicio": when, "ok": True}
 
-    def t_cambiar_evento(self, id: str, titulo: str | None, inicio: str | None, fin: str | None, lugar: str | None):
+    def t_cambiar_evento(self, id: str, titulo: str | None = None, inicio: str | None = None, fin: str | None = None,
+                         lugar: str | None = None):
         item = brain.get_item(self.db, uuid.UUID(id), "event")
         changes: dict[str, Any] = {}
         if titulo:
@@ -332,8 +339,9 @@ class Toolbox:
                                        link=vault.obsidian_url(note.path)))
         return {"ruta": note.path, "frontmatter": note.frontmatter, "contenido": note.body[:12000]}
 
-    def t_apuntar_sobre_persona(self, nombre: str, texto: str, seccion: str | None, fecha: str | None, adjuntar: bool,
-                                empresa: str | None, relacion: str | None, email: str | None):
+    def t_apuntar_sobre_persona(self, nombre: str, texto: str, seccion: str | None = None, fecha: str | None = None,
+                                adjuntar: bool = False, empresa: str | None = None, relacion: str | None = None,
+                                email: str | None = None):
         matches = people.find(self.db, nombre)
         if len(matches) > 1:
             return {"varias": [m.item.title for m in matches], "nota": "Pregunta a cuál se refiere antes de apuntar."}
