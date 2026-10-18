@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, CheckSquare, FileText, Mail, NotebookPen, Search } from "lucide-react";
+import { CalendarDays, CheckSquare, FileText, Gem, Mail, NotebookPen, Search } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -13,6 +13,7 @@ const KIND = {
   task: { label: "Tarea", icon: CheckSquare },
   event: { label: "Evento", icon: CalendarDays },
   email: { label: "Correo", icon: Mail },
+  vault: { label: "Memoria", icon: Gem },
 };
 
 export default function SearchPage() {
@@ -64,6 +65,7 @@ export default function SearchPage() {
             { value: "note", label: "Notas" },
             { value: "task", label: "Tareas" },
             { value: "event", label: "Eventos" },
+            { value: "vault", label: "Memoria" },
             { value: "email", label: "Correos" },
           ]}
         />
@@ -74,7 +76,7 @@ export default function SearchPage() {
       ) : results.isPending ? (
         <Loading label="Buscando" />
       ) : !results.data?.hits.length ? (
-        <Empty title={`Nada para «${q}»`}>Prueba con otras palabras o pregunta al asistente.</Empty>
+        <Empty title={`Nada para «${q}»`}>Prueba con otras palabras o pregúntale a Jarvis.</Empty>
       ) : (
         <>
           {results.data.years.length > 0 && <p className="mb-3 text-sm text-muted">Filtrando por {results.data.years.join(", ")}.</p>}

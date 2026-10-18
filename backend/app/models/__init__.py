@@ -11,6 +11,7 @@ from app.models.system import (
     PushSubscription,
     UserSession,
 )
+from app.models.vault import VaultNote
 
 __all__ = [
     "CATEGORIES",
@@ -35,4 +36,5 @@ __all__ = [
     "Reminder",
     "Task",
     "UserSession",
+    "VaultNote",
 ]

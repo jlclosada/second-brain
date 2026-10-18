@@ -14,13 +14,13 @@ from sqlalchemy import text  # noqa: E402
 
 from app.db import SessionLocal, engine, migrate  # noqa: E402
 from app.main import app  # noqa: E402
-from app.services import calendar, indexing, pipeline  # noqa: E402,F401  registran trabajos
+from app.services import calendar, downloads, indexing, pipeline, vault  # noqa: E402,F401  registran trabajos
 from app.services.jobs import run_once  # noqa: E402
 
 CSRF = {"X-Requested-With": "segundo-cerebro"}
 TABLES = (
     "items, jobs, reminders, notifications, sessions, login_attempts, audit_log, conversations, projects, "
-    "account, push_subscriptions, calendars, integrations"
+    "account, push_subscriptions, calendars, integrations, vault_notes"
 )
 
 

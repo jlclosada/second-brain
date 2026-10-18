@@ -138,10 +138,10 @@ export default function NotePage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => go("/asistente?q=" + encodeURIComponent(`Resume la nota «${n.title}»`), "nav-forward")}
+            onClick={() => go("/?q=" + encodeURIComponent(`Resume la nota «${n.title}»`), "nav-forward")}
             className="self-start"
           >
-            Preguntar al asistente sobre esta nota
+            Preguntar a Jarvis sobre esta nota
           </Button>
         </aside>
       </div>

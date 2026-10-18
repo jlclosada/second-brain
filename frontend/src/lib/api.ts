@@ -1,7 +1,7 @@
 // Cliente de la API. Todas las peticiones que cambian datos llevan la cabecera
 // X-Requested-With: el servidor la exige como protección contra CSRF.
 
-export type Kind = "document" | "note" | "task" | "event" | "email";
+export type Kind = "document" | "note" | "task" | "event" | "email" | "vault";
 
 export type DocumentFile = { filename: string; mime: string; size: number; pages: number | null; ocr_used: boolean };
 
@@ -211,7 +211,7 @@ export type Me = {
   ai_enabled: boolean;
   timezone: string;
   session_id: string;
-  prefs: { default_event_reminder: number; briefing_hour: number; expiry_warning_days: number[]; default_calendar_id?: string };
+  prefs: { default_event_reminder: number; briefing_hour: number; expiry_warning_days: number[]; default_calendar_id?: string; name?: string };
 };
 export type SessionInfo = { id: string; created_at: string; last_seen_at: string; ip: string | null; user_agent: string | null; current: boolean };
 export type AuditEntry = { at: string; action: string; ip: string | null; detail: Record<string, unknown> };
@@ -220,6 +220,71 @@ export type AppNotification = { id: string; kind: string; title: string; body: s
 export type ChatAction = { tool: string; summary: string; link: string | null };
 export type ChatMessage = { role: "user" | "assistant"; text: string; actions: ChatAction[] };
 export type Conversation = { id: string; title: string; updated_at: string };
+
+export type VaultNoteRef = {
+  id: string;
+  path: string;
+  title: string;
+  folder: string;
+  excerpt: string;
+  tags: string[];
+  estado: string | null;
+  updated_at: string | null;
+};
+export type VaultFolder = { folder: string; notes: VaultNoteRef[] };
+export type VaultNote = {
+  id: string;
+  path: string;
+  title: string;
+  folder: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  obsidian_url: string;
+  updated_at: string;
+  backlinks: { path: string; title: string }[];
+};
+export type MemoryStatus = {
+  vault: { configured: boolean; name: string; notes: number };
+  downloads: { enabled: boolean; waiting_for_ai?: boolean; folder: string | null; pending: number; filed: number; processing: number };
+  ai_enabled: boolean;
+};
+export type Activity = { id: string; title: string; body: string | null; url: string | null; at: string };
+
+export type JarvisEvent =
+  | { type: "start"; conversation_id: string }
+  | { type: "step" }
+  | { type: "text"; delta: string }
+  | { type: "tool"; tool: string }
+  | { type: "action"; action: ChatAction }
+  | { type: "done"; conversation_id: string; reply: ChatMessage }
+  | { type: "error"; message: string };
+
+/** Habla con Jarvis en directo: cada evento llega en cuanto ocurre. */
+export async function streamChat(message: string, conversationId: string | undefined, onEvent: (e: JarvisEvent) => void, signal?: AbortSignal) {
+  const res = await fetch("/api/assistant/stream", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "segundo-cerebro" },
+    body: JSON.stringify({ message, conversation_id: conversationId }),
+    signal,
+  });
+  if (res.status === 401) window.dispatchEvent(new Event("sb:logout"));
+  if (!res.ok || !res.body) throw new ApiError(res.status, "Jarvis no responde ahora mismo");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) !== -1) {
+      const chunk = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      for (const line of chunk.split("\n")) if (line.startsWith("data: ")) onEvent(JSON.parse(line.slice(6)) as JarvisEvent);
+    }
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -272,7 +337,7 @@ export const api = {
   login: (password: string, totp?: string) => request("/api/auth/login", send("POST", { password, totp })),
   logout: () => request("/api/auth/logout", send("POST")),
   me: () => request<Me>("/api/auth/me"),
-  prefs: (body: Partial<Me["prefs"]> & { default_calendar_id?: string }) => request<Me>("/api/auth/prefs", send("PATCH", body)),
+  prefs: (body: Partial<Me["prefs"]>) => request<Me>("/api/auth/prefs", send("PATCH", body)),
   changePassword: (current: string, next: string) => request("/api/auth/password", send("POST", { current, new: next })),
   totpSetup: () => request<{ secret: string; uri: string; qr_svg: string }>("/api/auth/totp/setup", send("POST")),
   totpEnable: (code: string) => request("/api/auth/totp/enable", send("POST", { code })),
@@ -293,6 +358,14 @@ export const api = {
   githubConnect: (token: string) => request<Integration>("/api/integrations/github", send("PUT", { token })),
   githubDisconnect: () => request<void>("/api/integrations/github", send("DELETE")),
   syncIntegration: (provider: "google" | "github") => request<void>(`/api/integrations/${provider}/sync`, send("POST")),
+
+  // Memoria (vault de Obsidian) y actividad de Jarvis
+  memoryStatus: () => request<MemoryStatus>("/api/memory/status"),
+  memoryTree: () => request<VaultFolder[]>("/api/memory/tree"),
+  memoryNote: (ref: { path?: string; id?: string }) => request<VaultNote>(`/api/memory/note${qs(ref)}`),
+  memoryCapture: (text: string, title?: string) => request<{ path: string; obsidian_url: string }>("/api/memory/capture", send("POST", { text, title })),
+  memorySync: () => request<void>("/api/memory/sync", send("POST")),
+  activity: (limit = 30) => request<Activity[]>(`/api/activity${qs({ limit })}`),
 
   // Bandeja de entrada (Gmail)
   inbox: (view: InboxView = "attention") => request<Inbox>(`/api/inbox${qs({ view })}`),
@@ -391,5 +464,7 @@ export function itemPath(kind: Kind, id: string) {
       return `/calendario?evento=${id}`;
     case "email":
       return `/bandeja?correo=${id}`;
+    case "vault":
+      return `/memoria?id=${id}`;
   }
 }

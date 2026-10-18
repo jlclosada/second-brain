@@ -1,5 +1,6 @@
 """Clasificación de documentos: Claude Haiku si hay clave de API, reglas sencillas si no."""
 
+import base64
 import logging
 import re
 import unicodedata
@@ -55,27 +56,37 @@ Devuelve sus metadatos para poder encontrarlo después buscando cosas como "segu
 - Las fechas en formato AAAA-MM-DD. Si un dato no aparece, déjalo vacío; no lo inventes."""
 
 
-def classify(text: str, filename: str) -> DocumentInfo:
+VISION_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+VISION_MAX_BYTES = 4 * 1024 * 1024
+
+
+def classify(text: str, filename: str, path: Path | None = None) -> DocumentInfo:
     settings = get_settings()
-    if settings.anthropic_api_key and text.strip():
+    # Una foto sin apenas texto (un tique, una captura, una foto de un DNI): Claude la mira.
+    image = path if path and path.suffix.lower() in VISION_TYPES and len(text.strip()) < 200 else None
+    if settings.anthropic_api_key and (text.strip() or image):
         try:
-            return _classify_with_claude(text, filename)
+            return _classify_with_claude(text, filename, image)
         except anthropic.APIError as exc:
             log.warning("Clasificación con Claude fallida, se usan reglas: %s", exc)
     return classify_with_rules(text, filename)
 
 
-def _classify_with_claude(text: str, filename: str) -> DocumentInfo:
+def _classify_with_claude(text: str, filename: str, image: Path | None = None) -> DocumentInfo:
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    content: list[dict] = []
+    if image is not None and image.stat().st_size <= VISION_MAX_BYTES:
+        content.append({"type": "image", "source": {
+            "type": "base64", "media_type": VISION_TYPES[image.suffix.lower()],
+            "data": base64.standard_b64encode(image.read_bytes()).decode(),
+        }})
+    content.append({"type": "text", "text": f"Archivo: {filename}\n\n<documento>\n{text[:CLASSIFY_CHARS]}\n</documento>"})
     response = client.messages.parse(
         model=settings.classify_model,
         max_tokens=2048,
         system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": f"Archivo: {filename}\n\n<documento>\n{text[:CLASSIFY_CHARS]}\n</documento>",
-        }],
+        messages=[{"role": "user", "content": content}],
         output_format=DocumentInfo,
     )
     if response.stop_reason == "refusal" or response.parsed_output is None:

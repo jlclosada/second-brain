@@ -1,8 +1,20 @@
-# Segundo Cerebro
+# Jarvis — tu segundo cerebro
 
-Tu agenda, tus tareas, tus notas y tus papeles en un solo sitio, en tu ordenador y en el móvil.
-Abres la app y ves qué te toca hoy; escribes «dentista el martes a las 10» y queda en el
-calendario; buscas «seguro de coche 2024» y aparece la póliza.
+Un asistente personal que vive en tu ordenador y maneja toda tu información: le hablas (o le
+escribes) y consulta tu vault de Obsidian, tus documentos, tu Google Calendar, tu Gmail, tus tareas
+y tus issues de GitHub, y actúa: apunta, agenda, archiva y te avisa.
+
+- **Jarvis.** La pantalla principal: un núcleo vivo que escucha, piensa y habla. Mantén pulsada la
+  barra espaciadora para hablarle; responde en voz alta y en directo, enseñando lo que consulta y hace.
+  Debajo, tu día: lo siguiente en la agenda (con botón para la videollamada), tareas, correo por
+  atender, revisiones de GitHub y lo que ha hecho por su cuenta.
+- **Memoria = tu vault de Obsidian.** Lo lee entero (búsqueda por palabras y por significado) y escribe
+  siguiendo el `CLAUDE.md` del vault: capturas a `00-Bandeja`, diario en `05-Diario/AAAA-MM-DD.md`,
+  wikilinks, y nunca borra nada. Lo que cambias en Obsidian lo ve en un minuto.
+- **Descargas se ordena sola.** Cada documento nuevo (PDF, fotos, Word, hojas…) se lee con OCR, Claude lo
+  clasifica (y mira las fotos), le pone un nombre claro y lo mueve a `Adjuntos/<categoría>/` del vault
+  con una nota en `03-Recursos/Documentos/` y un índice. Los duplicados van a `Adjuntos/_Duplicados`.
+  Instaladores, comprimidos y vídeos se quedan donde están. Necesita la clave de Claude.
 
 ## Qué hace
 
@@ -89,7 +101,8 @@ Necesitas [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Win
 git clone https://github.com/jlclosada/second-brain.git
 cd second-brain
 cp .env.example .env        # en Windows: copy .env.example .env
-# Edita .env: pon tu contraseña inicial y, si quieres, tu ANTHROPIC_API_KEY
+# Edita .env: tu contraseña inicial, ANTHROPIC_API_KEY (imprescindible para Jarvis),
+# y si tu vault o tu Descargas no están en ~/Documents/Segundo-Cerebro y ~/Downloads, VAULT_PATH y DOWNLOADS_PATH
 docker compose up -d --build
 ```
 

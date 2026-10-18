@@ -30,7 +30,7 @@ export function Button({
       className={cx(
         "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         size === "sm" ? "h-8 px-2.5 text-sm" : "h-10 px-3.5 text-[0.95rem]",
-        variant === "primary" && "bg-cobalt text-white hover:brightness-110 dark:text-paper",
+        variant === "primary" && "bg-cobalt text-paper hover:brightness-110 dark:text-paper",
         variant === "quiet" && "border border-line bg-surface text-ink hover:bg-sunken",
         variant === "ghost" && "text-muted hover:bg-sunken hover:text-ink",
         variant === "danger" && "text-clay hover:bg-clay-soft",

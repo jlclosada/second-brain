@@ -10,7 +10,7 @@ from app.services.chunking import split_text
 from app.services.embeddings import embed
 from app.services.jobs import enqueue, handler
 
-KIND_LABEL = {"document": "Documento", "note": "Nota", "task": "Tarea", "event": "Evento", "email": "Correo"}
+KIND_LABEL = {"document": "Documento", "note": "Nota", "task": "Tarea", "event": "Evento", "email": "Correo", "vault": "Nota de Obsidian"}
 
 
 def card_text(item: Item) -> str:
@@ -44,6 +44,9 @@ def card_text(item: Item) -> str:
             f"Recibido: {m.received_at.date().isoformat()}",
             m.snippet,
         ]
+    elif item.kind == "vault" and item.vault_note:
+        n = item.vault_note
+        parts += [f"Carpeta: {n.folder}" if n.folder else "", f"Estado: {n.frontmatter.get('estado')}" if n.frontmatter.get("estado") else ""]
     if item.project:
         parts.append(f"Proyecto: {item.project.name}")
     if item.tags:
@@ -60,6 +63,8 @@ def body_text(item: Item) -> str | None:
         return item.document.text
     if item.kind == "note" and item.note:
         return item.note.body
+    if item.kind == "vault" and item.vault_note:
+        return item.vault_note.body
     return None
 
 

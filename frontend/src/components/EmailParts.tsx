@@ -119,7 +119,7 @@ export function ConnectGoogleCard({ status, what = "tu correo y tu calendario" }
     <div
       className={cx("flex flex-wrap items-center gap-4 rounded-2xl border p-4 sm:p-5", reconnect ? "border-clay/40 bg-clay-soft" : "border-line bg-surface")}
     >
-      <div className={cx("flex size-11 shrink-0 items-center justify-center rounded-xl", reconnect ? "bg-clay text-white" : "bg-cobalt-soft text-cobalt")}>
+      <div className={cx("flex size-11 shrink-0 items-center justify-center rounded-xl", reconnect ? "bg-clay text-paper" : "bg-cobalt-soft text-cobalt")}>
         {reconnect ? <Plug size={20} /> : <Mail size={20} />}
       </div>
       <div className="min-w-0 flex-1">

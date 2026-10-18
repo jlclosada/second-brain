@@ -35,10 +35,15 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://brain:brain@db:5432/brain
+      VAULT_DIR: /vault
+      DOWNLOADS_DIR: /downloads
     ports:
       - "8000:8000"
     volumes:
       - brain-data:/data
+      # Tu vault de Obsidian (la memoria de Jarvis) y la carpeta que se ordena sola
+      - ${VAULT_PATH:-~/Documents/Segundo-Cerebro}:/vault
+      - ${DOWNLOADS_PATH:-~/Downloads}:/downloads
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -58,8 +63,12 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://brain:brain@db:5432/brain
+      VAULT_DIR: /vault
+      DOWNLOADS_DIR: /downloads
     volumes:
       - brain-data:/data
+      - ${VAULT_PATH:-~/Documents/Segundo-Cerebro}:/vault
+      - ${DOWNLOADS_PATH:-~/Downloads}:/downloads
     depends_on:
       migrate:
         condition: service_completed_successfully

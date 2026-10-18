@@ -12,11 +12,13 @@ from typing import Literal
 
 import anthropic
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.models import VaultNote
 from app.schemas import CaptureOut, EventIn, NoteIn, ReminderIn, TaskIn
-from app.services import brain
+from app.services import brain, vault
 from app.services.when import fold, parse
 
 log = logging.getLogger(__name__)
@@ -148,7 +150,11 @@ def capture(db: Session, text: str, commit: bool = True, kind: str | None = None
 
     if out.kind == "note":
         out.body = parsed.body or text
-        if commit:
+        if commit and vault.root() is not None:
+            # Con vault, las notas van a su Bandeja (su memoria) y no a la base.
+            path = vault.capture(db, parsed.title or out.body[:60], out.body, out.tags or None)
+            out.created_id = db.scalars(select(VaultNote.item_id).where(VaultNote.path == path)).first()
+        elif commit:
             out.created_id = brain.create_note(db, NoteIn(title=parsed.title, body=out.body, tags=out.tags)).id
     elif out.kind == "event":
         starts = datetime.combine(day, at or time.min, tzinfo=tz)

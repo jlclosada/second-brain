@@ -48,7 +48,7 @@ function NotificationsBlock() {
   };
 
   const prefs = me.data?.prefs;
-  const update = async (patch: Record<string, number>) => {
+  const update = async (patch: Record<string, number | string>) => {
     const updated = await api.prefs(patch);
     queryClient.setQueryData(["me"], updated);
     toast("Preferencia guardada");
@@ -75,6 +75,16 @@ function NotificationsBlock() {
       <p className="mt-2 text-sm text-faint">Funcionan con HTTPS (por ejemplo con Tailscale) o en este mismo ordenador.</p>
       {prefs && (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <Field label="Cómo te llama Jarvis">
+            {(id) => (
+              <Input
+                id={id}
+                defaultValue={prefs.name ?? ""}
+                placeholder="Tu nombre"
+                onBlur={(e) => e.target.value.trim() !== (prefs.name ?? "") && update({ name: e.target.value.trim() })}
+              />
+            )}
+          </Field>
           <Field label="Aviso de eventos de Google y otros calendarios">
             {(id) => (
               <Select id={id} value={prefs.default_event_reminder} onChange={(e) => update({ default_event_reminder: Number(e.target.value) })}>

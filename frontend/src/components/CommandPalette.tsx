@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Command } from "cmdk";
-import { Bell, CalendarDays, CheckSquare, CornerDownLeft, FileText, Mail, NotebookPen, Search, Sparkles } from "lucide-react";
+import { Bell, CalendarDays, CheckSquare, CornerDownLeft, FileText, Gem, Mail, NotebookPen, Search, Sparkles } from "lucide-react";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -10,20 +10,18 @@ import { useGo } from "../lib/nav";
 import { describeCapture } from "./Capture";
 import { cx } from "./ui";
 
-const KIND_ICON = { document: FileText, note: NotebookPen, task: CheckSquare, event: CalendarDays, reminder: Bell, email: Mail };
-const KIND_LABEL = { document: "Documento", note: "Nota", task: "Tarea", event: "Evento", reminder: "Recordatorio", email: "Correo" };
+const KIND_ICON = { document: FileText, note: NotebookPen, task: CheckSquare, event: CalendarDays, reminder: Bell, email: Mail, vault: Gem };
+const KIND_LABEL = { document: "Documento", note: "Nota", task: "Tarea", event: "Evento", reminder: "Recordatorio", email: "Correo", vault: "Memoria" };
 
 const PAGES = [
-  { to: "/", label: "Hoy" },
-  { to: "/bandeja", label: "Bandeja de correo" },
-  { to: "/calendario", label: "Calendario" },
+  { to: "/", label: "Jarvis" },
+  { to: "/bandeja", label: "Correo" },
+  { to: "/calendario", label: "Agenda" },
   { to: "/tareas", label: "Tareas" },
-  { to: "/notas", label: "Notas" },
-  { to: "/diario", label: "Diario de hoy" },
-  { to: "/documentos", label: "Documentos" },
+  { to: "/memoria", label: "Memoria: tu vault de Obsidian" },
+  { to: "/memoria?vista=documentos", label: "Documentos" },
+  { to: "/memoria?vista=actividad", label: "Lo que ha hecho Jarvis" },
   { to: "/documentos?subir=1", label: "Subir documentos" },
-  { to: "/proyectos", label: "Proyectos y áreas" },
-  { to: "/asistente", label: "Preguntar al asistente" },
   { to: "/ajustes?seccion=conexiones", label: "Conectar Google o GitHub" },
   { to: "/ajustes", label: "Ajustes" },
 ];

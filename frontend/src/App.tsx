@@ -6,15 +6,15 @@ import Shell from "./components/Shell";
 import { Loading } from "./components/ui";
 import { api } from "./lib/api";
 import LoginPage from "./pages/Login";
-import TodayPage from "./pages/Today";
+import JarvisPage from "./pages/Jarvis";
 
-// Hoy carga al instante; el resto de secciones se descargan al abrirlas.
-const AssistantPage = lazy(() => import("./pages/Assistant"));
+// Jarvis carga al instante; el resto de secciones se descargan al abrirlas.
 const CalendarPage = lazy(() => import("./pages/Calendar"));
 const DocumentPage = lazy(() => import("./pages/DocumentDetail"));
 const DocumentsPage = lazy(() => import("./pages/Documents"));
 const InboxPage = lazy(() => import("./pages/Inbox"));
 const JournalPage = lazy(() => import("./pages/Journal"));
+const MemoryPage = lazy(() => import("./pages/Memory"));
 const NotePage = lazy(() => import("./pages/NoteDetail"));
 const NotesPage = lazy(() => import("./pages/Notes"));
 const ProjectPage = lazy(() => import("./pages/ProjectDetail"));
@@ -44,10 +44,11 @@ export default function App() {
     <Shell>
       <Suspense fallback={<Loading />}>
         <Routes>
-          <Route path="/" element={<TodayPage />} />
-          <Route path="/hoy" element={<TodayPage />} />
+          <Route path="/" element={<JarvisPage />} />
+          <Route path="/hoy" element={<Navigate to="/" replace />} />
+          <Route path="/memoria" element={<MemoryPage />} />
           <Route path="/bandeja" element={<InboxPage />} />
-          <Route path="/biblioteca" element={<Navigate to="/notas" replace />} />
+          <Route path="/biblioteca" element={<Navigate to="/memoria" replace />} />
           <Route path="/calendario" element={<CalendarPage />} />
           <Route path="/tareas" element={<TasksPage />} />
           <Route path="/notas" element={<NotesPage />} />
@@ -58,9 +59,9 @@ export default function App() {
           <Route path="/proyectos" element={<ProjectsPage />} />
           <Route path="/proyectos/:id" element={<ProjectPage />} />
           <Route path="/buscar" element={<SearchPage />} />
-          <Route path="/asistente" element={<AssistantPage />} />
+          <Route path="/asistente" element={<Navigate to="/" replace />} />
           <Route path="/ajustes" element={<SettingsPage />} />
-          <Route path="*" element={<TodayPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </Shell>

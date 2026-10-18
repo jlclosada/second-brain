@@ -15,7 +15,17 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import SessionLocal, engine
-from app.services import calendar, github, google, indexing, jobs, pipeline, scheduler  # noqa: F401  registran sus trabajos
+from app.services import (  # noqa: F401  registran sus trabajos
+    calendar,
+    downloads,
+    github,
+    google,
+    indexing,
+    jobs,
+    pipeline,
+    scheduler,
+    vault,
+)
 
 log = logging.getLogger("worker")
 _running = True
@@ -28,6 +38,8 @@ def _stop(*_):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # pypdf avisa de cada fuente que no entiende del todo; no aporta nada.
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     settings = get_settings()
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)

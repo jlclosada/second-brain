@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, CheckSquare, FileText, Mail, NotebookPen } from "lucide-react";
+import { CalendarDays, CheckSquare, FileText, Gem, Mail, NotebookPen } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
@@ -9,7 +9,7 @@ import { api, itemPath, type LinkRef, type NoteDetail } from "../lib/api";
 import { GoLink } from "../lib/nav";
 import { cx, Segmented } from "./ui";
 
-const KIND_ICON = { document: FileText, note: NotebookPen, task: CheckSquare, event: CalendarDays, email: Mail };
+const KIND_ICON = { document: FileText, note: NotebookPen, task: CheckSquare, event: CalendarDays, email: Mail, vault: Gem };
 
 /** Convierte [[Título]] en enlaces a la nota con ese título. */
 function withWikiLinks(body: string, links: LinkRef[]) {

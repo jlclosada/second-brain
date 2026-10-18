@@ -35,7 +35,7 @@ CATEGORIES = [
     "Otros",
 ]
 
-KINDS = ("document", "note", "task", "event", "email")
+KINDS = ("document", "note", "task", "event", "email", "vault")
 
 
 class Item(Base):
@@ -81,6 +81,9 @@ class Item(Base):
     )
     email: Mapped["Email | None"] = relationship(  # noqa: F821
         back_populates="item", uselist=False, cascade="all, delete-orphan", foreign_keys="Email.item_id"
+    )
+    vault_note: Mapped["VaultNote | None"] = relationship(  # noqa: F821
+        back_populates="item", uselist=False, cascade="all, delete-orphan"
     )
     project: Mapped["Project | None"] = relationship()  # noqa: F821
     chunks: Mapped[list["Chunk"]] = relationship(

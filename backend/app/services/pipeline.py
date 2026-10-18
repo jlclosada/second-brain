@@ -42,7 +42,7 @@ def process_item(session: Session, item: Item) -> None:
     doc.pages = extracted.pages
     doc.ocr_used = extracted.ocr_used
 
-    info = classify(extracted.text, doc.filename)
+    info = classify(extracted.text, doc.filename, Path(doc.path))
     item.title = info.title[:300]
     item.doc_type = info.doc_type[:80]
     item.category = info.category
@@ -51,7 +51,9 @@ def process_item(session: Session, item: Item) -> None:
     item.expires_on = _parse_date(info.expires_on)
     item.year = info.year or (item.doc_date.year if item.doc_date else None)
     item.tags = sorted({t.strip().lower() for t in info.tags if t.strip()})
-    item.entities = {"list": [e.model_dump() for e in info.entities]}
+    # Se conservan las marcas propias (origen en Descargas, nota del vault…).
+    kept = {k: v for k, v in (item.entities or {}).items() if k != "list"}
+    item.entities = {**kept, "list": [e.model_dump() for e in info.entities]}
 
     reindex(session, item)
     item.status = "ready"
@@ -67,6 +69,9 @@ def _process_document(db: Session, payload: dict) -> None:
     db.commit()
     process_item(db, item)
     log.info("Procesado: %s → %s / %s", item.id, item.category, item.title)
+    if (item.entities or {}).get("origin") and not (item.entities or {}).get("filed_to"):
+        # Llegó solo desde Descargas: ahora se ordena en el vault.
+        enqueue(db, "file_document", {"item_id": str(item.id)}, dedupe=True)
 
 
 @on_failure("process_document")

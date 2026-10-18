@@ -94,7 +94,7 @@ export function EventSheet({ draft, onClose }: { draft: EventDraft | null; onClo
           href={form.meet_url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-moss px-3 text-sm font-medium text-white dark:text-paper"
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-moss px-3 text-sm font-medium text-paper"
         >
           <Video size={16} /> Unirse a la videollamada
         </a>

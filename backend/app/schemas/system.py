@@ -57,6 +57,8 @@ class PrefsUpdate(BaseModel):
     expiry_warning_days: list[int] | None = None
     # Calendario donde se crean los eventos nuevos ("" = automático)
     default_calendar_id: str | None = Field(default=None, max_length=40)
+    # Cómo te llama Jarvis
+    name: str | None = Field(default=None, max_length=60)
 
 
 class NotificationOut(BaseModel):

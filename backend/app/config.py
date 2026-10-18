@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     # Dirección con la que abres la app (p. ej. https://tu-pc.xxxx.ts.net). Sirve para la
     # dirección de vuelta de Google; si no se da, se usa la de la petición.
     public_url: str | None = None
+    # Tu vault de Obsidian: la memoria de Jarvis. Vacío = sin vault.
+    vault_dir: Path | None = None
+    # Carpeta que se vigila y se ordena sola (Descargas). Vacío = no se vigila.
+    downloads_dir: Path | None = None
+    # Segundos sin cambios antes de tocar un archivo (para no coger descargas a medias).
+    downloads_settle_seconds: int = 60
+    # Sin Claude los nombres serían pobres («Scan_0032»): por defecto no se mueve nada hasta tener clave.
+    downloads_require_ai: bool = True
     gmail_sync_minutes: int = 5
     google_calendar_sync_minutes: int = 10
     github_sync_minutes: int = 10

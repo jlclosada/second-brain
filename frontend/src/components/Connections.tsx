@@ -187,7 +187,7 @@ function GoogleCalendars() {
           </li>
         ))}
       </ul>
-      <Field label="Los eventos nuevos van a" hint="También lo que apuntas con la captura rápida o creas con el asistente.">
+      <Field label="Los eventos nuevos van a" hint="También lo que apuntas con la captura rápida o le pides a Jarvis.">
         {(id) => (
           <Select id={id} value={me.data?.prefs.default_calendar_id ?? ""} onChange={(e) => setDefault(e.target.value)} className="max-w-sm">
             <option value="">Automático (el principal de Google)</option>

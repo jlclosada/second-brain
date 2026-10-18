@@ -34,6 +34,16 @@ def vapid_keys(db: Session) -> Account:
     return account
 
 
+def activity(db: Session, *, title: str, body: str | None = None, url: str | None = None, key: str) -> None:
+    """Lo que Jarvis hace por su cuenta (archivar un documento…): queda en el registro, sin push."""
+    db.execute(
+        insert(Notification)
+        .values(kind="jarvis", title=title, body=body, url=url, dedupe_key=key, read_at=datetime.now(UTC),
+                pushed_at=datetime.now(UTC))
+        .on_conflict_do_nothing(index_elements=["dedupe_key"])
+    )
+
+
 def notify(db: Session, *, kind: str, title: str, body: str | None, url: str | None, key: str) -> bool:
     """Crea el aviso si no existía (por `key`) y lo envía. Devuelve True si es nuevo."""
     inserted = db.execute(

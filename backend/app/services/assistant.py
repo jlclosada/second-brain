@@ -4,8 +4,10 @@ mediante herramientas (buscar, ver la agenda, crear tareas, eventos y notas…).
 import json
 import logging
 import uuid
+from collections.abc import Iterator
 from datetime import date, datetime, time
 from typing import Any
+from urllib.parse import quote
 
 import anthropic
 from sqlalchemy import select
@@ -14,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import Chunk, Conversation, Item, Task
 from app.schemas import ChatAction, ChatMessage, EventIn, NoteIn, ReminderIn, TaskIn
-from app.services import brain
+from app.services import brain, vault
 from app.services.calendar import events_between, local_day_bounds
 from app.services.search import search
 
@@ -24,13 +26,20 @@ MAX_STEPS = 10
 # Modelos que admiten el reintento automático con otro modelo si uno rechaza la petición.
 FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
 
-SYSTEM_PROMPT = """Eres el asistente del "segundo cerebro" de una persona: su archivo de documentos,
-notas, tareas, calendario (sincronizado con Google Calendar), correo de Gmail, issues de GitHub y recordatorios. Respondes en español, breve y directo.
+SYSTEM_PROMPT = """Eres Jarvis, el asistente personal de José Luis: su segundo cerebro. Conoces y manejas
+su vault de Obsidian (su memoria: proyectos, áreas, recursos, diario), sus documentos (los de Descargas
+se archivan solos en el vault), su calendario de Google, su Gmail, sus tareas y sus issues de GitHub.
 
-- Para responder sobre su vida, documentos o agenda, consulta primero con las herramientas; no supongas.
-- Cuando uses información de un elemento, nómbralo por su título para que pueda abrirlo.
-- Puedes crear tareas, eventos, notas y recordatorios, y completar tareas, cuando te lo pida o
-  cuando sea claramente lo que quiere. Di qué has hecho en una frase.
+Cómo trabajas:
+- Hablas en español, con calidez y precisión, como un buen asistente de confianza: frases cortas,
+  sin relleno, sin listas largas si no hacen falta. Tus respuestas también se leen en voz alta.
+- Antes de responder sobre su vida, documentos o agenda, consulta con las herramientas. No supongas.
+- Busca primero en su memoria (buscar) y lee las notas relevantes (leer_nota) antes de opinar.
+- Cuando uses información de algo, nómbralo por su título para que pueda abrirlo.
+- Actúas cuando te lo pide o cuando es claramente lo que quiere: crear tareas, eventos (van a Google
+  Calendar), recordatorios, notas en el vault, apuntes en el diario. Dilo en una frase al terminar.
+- En el vault sigues sus reglas: lo nuevo va a la Bandeja, el diario es 05-Diario/AAAA-MM-DD, se enlaza
+  con [[wikilinks]] y nunca se borra nada.
 - Las fechas relativas ("el martes", "mañana") se calculan desde el momento indicado en cada mensaje.
 - Si no encuentras algo, dilo y sugiere qué podría faltar. No inventes fechas, importes ni nombres."""
 
@@ -60,8 +69,10 @@ TOOLS = [
     _tool("buscar", "Busca en todo el segundo cerebro (documentos, notas, tareas, eventos y correos) por palabras y "
           "significado. Devuelve los elementos más relevantes con un fragmento.",
           {"consulta": _S,
-           "tipo": {"type": ["string", "null"], "enum": ["document", "note", "task", "event", "email", None]}},
+           "tipo": {"type": ["string", "null"], "enum": ["document", "note", "task", "event", "email", "vault", None]}},
           ["consulta", "tipo"]),
+    _tool("leer_nota", "Lee una nota del vault de Obsidian por su título (como en un [[wikilink]]) o su ruta.",
+          {"nota": _S}, ["nota"]),
     _tool("correo_pendiente", "Correos de la bandeja de entrada de Gmail que requieren atención (sin leer, importantes "
           "o destacados en Principal), del más reciente al más antiguo.", {}, []),
     _tool("ver_elemento", "Lee el contenido completo de un elemento por su id (texto del documento, cuerpo de la nota…).",
@@ -78,10 +89,13 @@ TOOLS = [
           {"titulo": _S, "inicio": _S, "fin": _NS, "dia_completo": {"type": "boolean"}, "lugar": _NS,
            "aviso_minutos": {"type": ["integer", "null"]}},
           ["titulo", "inicio", "fin", "dia_completo", "lugar", "aviso_minutos"]),
-    _tool("crear_nota", "Guarda una nota en markdown.", {"titulo": _S, "contenido": _S}, ["titulo", "contenido"]),
+    _tool("crear_nota", "Guarda una nota en markdown en el vault (en la Bandeja). Enlaza con [[wikilinks]] a lo "
+          "relacionado.", {"titulo": _S, "contenido": _S}, ["titulo", "contenido"]),
     _tool("crear_recordatorio", "Programa un aviso push a una hora concreta (AAAA-MM-DDTHH:MM, hora local).",
           {"texto": _S, "cuando": _S}, ["texto", "cuando"]),
-    _tool("escribir_en_diario", "Añade un párrafo a la entrada del diario de hoy.", {"texto": _S}, ["texto"]),
+    _tool("escribir_en_diario", "Añade una línea a la nota diaria de hoy en el vault, en la sección indicada "
+          "('Notas y capturas', 'Hecho hoy', 'Foco del día' o 'Reflexión').",
+          {"texto": _S, "seccion": {"type": ["string", "null"]}}, ["texto", "seccion"]),
 ]
 
 _LINKS = {"document": "/documentos/{id}", "note": "/notas/{id}", "task": "/tareas?t={id}",
@@ -89,6 +103,8 @@ _LINKS = {"document": "/documentos/{id}", "note": "/notas/{id}", "task": "/tarea
 
 
 def _link(item: Item) -> str:
+    if item.kind == "vault" and item.vault_note:
+        return f"/memoria?nota={quote(item.vault_note.path)}"
     return _LINKS.get(item.kind, "/").format(id=item.id)
 
 
@@ -132,13 +148,15 @@ class Toolbox:
                 text = "\n".join(c.content for c in self.db.scalars(
                     select(Chunk).where(Chunk.item_id == item.id).order_by(Chunk.ord)))
             data |= {"resumen": item.summary, "categoria": item.category, "vence": str(item.expires_on or ""),
-                     "texto": text[:12000]}
+                     "archivado_en": (item.entities or {}).get("filed_to"), "texto": text[:12000]}
         elif item.kind == "note":
             data["contenido"] = item.note.body[:12000]
         elif item.kind == "task":
             data |= brain.task_out(item).model_dump(mode="json")
         elif item.kind == "event":
             data |= brain.event_item_out(item).model_dump(mode="json")
+        elif item.kind == "vault" and item.vault_note:
+            data |= {"ruta": item.vault_note.path, "contenido": item.vault_note.body[:12000]}
         elif item.kind == "email" and item.email:
             data |= {"de": item.email.sender_name or item.email.sender_email, "extracto": item.email.snippet,
                      "recibido": _fmt_dt(item.email.received_at)}
@@ -202,7 +220,20 @@ class Toolbox:
         self.actions.append(ChatAction(tool="crear_evento", summary=f"Añadió «{item.title}» el {when}", link=_link(item)))
         return {"id": str(item.id), "inicio": when, "ok": True}
 
+    def t_leer_nota(self, nota: str) -> dict:
+        note = vault.find_note(self.db, nota)
+        if note is None:
+            return {"error": f"No hay ninguna nota «{nota}» en el vault"}
+        self.actions.append(ChatAction(tool="leer_nota", summary=f"Leyó «{note.item.title}»",
+                                       link=f"/memoria?nota={quote(note.path)}"))
+        return {"ruta": note.path, "titulo": note.item.title, "frontmatter": note.frontmatter, "contenido": note.body[:15000]}
+
     def t_crear_nota(self, titulo: str, contenido: str):
+        if vault.root() is not None:
+            path = vault.capture(self.db, titulo, contenido)
+            self.actions.append(ChatAction(tool="crear_nota", summary=f"Guardó «{titulo}» en la Bandeja del vault",
+                                           link=f"/memoria?nota={quote(path)}"))
+            return {"ruta": path, "ok": True}
         item = brain.create_note(self.db, NoteIn(title=titulo, body=contenido))
         self.actions.append(ChatAction(tool="crear_nota", summary=f"Guardó la nota «{item.title}»", link=_link(item)))
         return {"id": str(item.id), "ok": True}
@@ -213,8 +244,13 @@ class Toolbox:
                                        summary=f"Te avisará el {_fmt_dt(r.remind_at)}: {r.title}", link="/hoy"))
         return {"id": str(r.id), "ok": True}
 
-    def t_escribir_en_diario(self, texto: str):
+    def t_escribir_en_diario(self, texto: str, seccion: str | None = None):
         today = datetime.now(get_settings().tz).date()
+        if vault.root() is not None:
+            path = vault.append_daily(self.db, texto, seccion or "Notas y capturas", today)
+            self.actions.append(ChatAction(tool="escribir_en_diario", summary="Apuntó en el diario de hoy",
+                                           link=f"/memoria?nota={quote(path)}"))
+            return {"ok": True, "ruta": path}
         item = brain.journal_for(self.db, today, create=True)
         body = (item.note.body.rstrip() + "\n\n" + texto.strip()).strip()
         brain.update_note(self.db, item, {"body": body})
@@ -230,28 +266,34 @@ def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
 
-def _create(client: anthropic.Anthropic, messages: list[dict]):
-    model = get_settings().chat_model
-    params = dict(
-        model=model,
+def _params(messages: list[dict]) -> dict:
+    return dict(
+        model=get_settings().chat_model,
         max_tokens=16000,
         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
         tools=TOOLS,
         messages=messages,
         output_config={"effort": "medium"},
     )
-    if model in FALLBACK_MODELS:
-        return client.beta.messages.create(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **params)
-    return client.messages.create(**params)
 
 
-def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Conversation, ChatMessage]:
+def _stream(client: anthropic.Anthropic, messages: list[dict]):
+    params = _params(messages)
+    if params["model"] in FALLBACK_MODELS:
+        return client.beta.messages.stream(betas=["server-side-fallback-2026-07-01"], fallbacks="default", **params)
+    return client.messages.stream(**params)
+
+
+def chat_events(db: Session, text: str, conversation_id: uuid.UUID | None) -> Iterator[dict]:
+    """La conversación como eventos, para verla en directo:
+    start → (step → text… → action…)* → done. El texto llega a trozos mientras Claude escribe."""
     client = _client()
     conv = db.get(Conversation, conversation_id) if conversation_id else None
     if conv is None:
         conv = Conversation(title=text.strip()[:80], messages=[], api_messages=[])
         db.add(conv)
         db.commit()
+    yield {"type": "start", "conversation_id": str(conv.id)}
 
     now = datetime.now(get_settings().tz)
     weekday = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][now.weekday()]
@@ -261,7 +303,11 @@ def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Con
     tools = Toolbox(db)
     reply_text = ""
     for _ in range(MAX_STEPS):
-        response = _create(client, api)
+        yield {"type": "step"}
+        with _stream(client, api) as stream:
+            for delta in stream.text_stream:
+                yield {"type": "text", "delta": delta}
+            response = stream.get_final_message()
         api.append({"role": "assistant", "content": [b.to_dict() for b in response.content]})
         if response.stop_reason == "refusal":
             reply_text = "No puedo ayudarte con esto."
@@ -275,6 +321,8 @@ def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Con
             break
         results = []
         for call in calls:
+            yield {"type": "tool", "tool": call.name}
+            before = len(tools.actions)
             try:
                 output = tools.run(call.name, dict(call.input))
                 results.append({"type": "tool_result", "tool_use_id": call.id,
@@ -284,6 +332,8 @@ def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Con
                 log.warning("Herramienta %s falló: %s", call.name, exc)
                 results.append({"type": "tool_result", "tool_use_id": call.id, "is_error": True,
                                 "content": f"Error: {exc}"})
+            for action in tools.actions[before:]:
+                yield {"type": "action", "action": action.model_dump()}
         api.append({"role": "user", "content": results})
     else:
         reply_text = "He necesitado demasiados pasos; prueba a concretar un poco más."
@@ -294,4 +344,13 @@ def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Con
     conv.messages = [*conv.messages, ChatMessage(role="user", text=text).model_dump(), reply.model_dump()]
     conv.updated_at = datetime.now(get_settings().tz)
     db.commit()
-    return conv, reply
+    yield {"type": "done", "conversation_id": str(conv.id), "reply": reply.model_dump()}
+
+
+def chat(db: Session, text: str, conversation_id: uuid.UUID | None) -> tuple[Conversation, ChatMessage]:
+    done: dict = {}
+    for event in chat_events(db, text, conversation_id):
+        if event["type"] == "done":
+            done = event
+    conv = db.get(Conversation, uuid.UUID(done["conversation_id"]))
+    return conv, ChatMessage.model_validate(done["reply"])

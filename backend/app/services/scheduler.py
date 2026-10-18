@@ -114,6 +114,13 @@ def calendar_sync(db: Session, now: datetime) -> None:
     db.commit()
 
 
+def memory_sync(db: Session, now: datetime) -> None:
+    """Cada minuto: el vault al día y Descargas ordenada."""
+    jobs.enqueue(db, "sync_vault", {}, dedupe=True, max_attempts=1)
+    jobs.enqueue(db, "scan_downloads", {}, dedupe=True, max_attempts=1)
+    db.commit()
+
+
 def integrations_sync(db: Session, now: datetime) -> None:
     from app.services.github import schedule_github_sync
     from app.services.google import schedule_google_sync
@@ -140,6 +147,7 @@ def tick(db: Session, now: datetime | None = None) -> None:
         lambda: morning(db, now, p),
         lambda: calendar_sync(db, now),
         lambda: integrations_sync(db, now),
+        lambda: memory_sync(db, now),
     ):
         try:
             step()
