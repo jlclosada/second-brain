@@ -88,7 +88,7 @@ async def security(request: Request, call_next):
     headers.setdefault("X-Content-Type-Options", "nosniff")
     headers.setdefault("Referrer-Policy", "same-origin")
     headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=()")
+    headers.setdefault("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(), payment=()")
     headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     headers.setdefault("Content-Security-Policy", CSP)
     if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":

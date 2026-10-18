@@ -23,6 +23,8 @@ const RecognitionCtor: (new () => Recognition) | undefined =
     : undefined;
 
 const SPEAK_KEY = "jarvis:voz";
+const IOS =
+  typeof navigator !== "undefined" && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
 export function readAloudPref(): boolean {
   try {
@@ -135,7 +137,18 @@ export function useVoice({ onFinal }: { onFinal: (text: string) => void }) {
       setInterim((finalText.current + live).trim());
     };
     r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") setError("Permite el micrófono para hablar con Jarvis.");
+      if (e.error === "not-allowed")
+        setError(
+          IOS ? "Safari no tiene permiso para el micrófono: Ajustes › Apps › Safari › Micrófono › Permitir." : "Permite el micrófono para hablar con Jarvis.",
+        );
+      else if (e.error === "service-not-allowed")
+        setError(
+          IOS
+            ? "Activa el Dictado del iPhone (Ajustes › General › Teclado › Activar Dictado). Mientras, puedes dictar con el micro del teclado."
+            : "El navegador no deja usar el reconocimiento de voz aquí. Prueba en Chrome o Safari.",
+        );
+      else if (e.error === "audio-capture") setError("No encuentro ningún micrófono.");
+      else if (e.error === "network") setError("El reconocimiento de voz necesita conexión a Internet.");
       else if (e.error !== "no-speech" && e.error !== "aborted") setError("No te he entendido. Prueba otra vez.");
     };
     r.onend = () => {
@@ -148,7 +161,8 @@ export function useVoice({ onFinal }: { onFinal: (text: string) => void }) {
     };
     rec.current = r;
     setListening(true);
-    startMeter();
+    // En iPhone abrir el micro dos veces (dictado + medidor) hace fallar el dictado.
+    if (!IOS) startMeter();
     try {
       r.start();
     } catch {

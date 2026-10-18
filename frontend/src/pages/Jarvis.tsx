@@ -426,7 +426,10 @@ export default function JarvisPage() {
   }, [voice]);
 
   useEffect(() => {
-    if (voice.error) toast.error(voice.error);
+    if (!voice.error) return;
+    toast.error(voice.error, { duration: 8000 });
+    // Siempre queda escribir (o dictar con el micro del teclado del móvil).
+    input.current?.focus();
   }, [voice.error]);
 
   // /?q=… llega desde otras pantallas («Preguntar a Jarvis sobre esta nota»).
