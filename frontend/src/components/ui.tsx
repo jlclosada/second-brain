@@ -30,8 +30,8 @@ export function Button({
       className={cx(
         "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         size === "sm" ? "h-8 px-2.5 text-sm" : "h-10 px-3.5 text-[0.95rem]",
-        variant === "primary" && "bg-cobalt text-paper hover:brightness-110 dark:text-paper",
-        variant === "quiet" && "border border-line bg-surface text-ink hover:bg-sunken",
+        variant === "primary" && "bg-cobalt font-semibold text-paper hover:brightness-110",
+        variant === "quiet" && "border border-line bg-surface text-ink hover:border-line-strong hover:bg-raised",
         variant === "ghost" && "text-muted hover:bg-sunken hover:text-ink",
         variant === "danger" && "text-clay hover:bg-clay-soft",
         className,
@@ -134,8 +134,8 @@ export function PageHeader({ title, children, sub }: { title: ReactNode; sub?: R
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-[2rem] leading-tight font-semibold sm:text-[2.4rem]">{title}</h1>
-        {sub && <p className="mt-1 text-muted">{sub}</p>}
+        <h1 className="text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">{title}</h1>
+        {sub && <p className="mt-1 text-[0.95rem] text-muted">{sub}</p>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </header>
@@ -146,7 +146,7 @@ export function Section({ title, action, children, className }: { title: string;
   return (
     <section className={cx("mb-8", className)}>
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-base font-semibold">{title}</h2>
         {action}
       </div>
       {children}
@@ -191,5 +191,56 @@ export function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+type Tone = "neutral" | "accent" | "success" | "warning" | "danger";
+
+const TONES: Record<Tone, string> = {
+  neutral: "bg-white/[0.06] text-muted ring-line",
+  accent: "bg-cobalt-soft text-cobalt ring-cobalt/25",
+  success: "bg-moss-soft text-moss ring-moss/25",
+  warning: "bg-ochre-soft text-ochre ring-ochre/25",
+  danger: "bg-clay-soft text-clay ring-clay/25",
+};
+
+/** Etiqueta de estado o categoría, con borde para que se distinga del texto. */
+export function Badge({ tone = "neutral", children, className }: { tone?: Tone; children: ReactNode; className?: string }) {
+  return (
+    <span className={cx("inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium whitespace-nowrap ring-1 ring-inset", TONES[tone], className)}>
+      {children}
+    </span>
+  );
+}
+
+/** Tarjeta de métrica: número grande, etiqueta y una línea de contexto. */
+export function Stat({ label, value, hint, icon, tone = "neutral", onClick, active }: {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  icon?: ReactNode;
+  tone?: Tone;
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      aria-pressed={onClick ? !!active : undefined}
+      className={cx(
+        "glass flex min-w-0 flex-col items-start gap-1 rounded-xl p-4 text-left",
+        onClick && "glass-hover cursor-pointer",
+        active && "border-cobalt/60 ring-1 ring-cobalt/30",
+      )}
+    >
+      <span className="flex w-full items-center justify-between gap-2 text-[0.8rem] text-muted">
+        {label}
+        {icon && <span className={cx("flex size-7 items-center justify-center rounded-lg ring-1 ring-inset", TONES[tone])}>{icon}</span>}
+      </span>
+      <span className="text-2xl font-semibold tabular">{value}</span>
+      {hint && <span className="text-xs text-faint">{hint}</span>}
+    </Tag>
   );
 }

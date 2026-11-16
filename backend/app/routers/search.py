@@ -21,7 +21,7 @@ def search_endpoint(
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
-    parsed, hits = search(db, q[:300], category=category, limit=min(limit, 50), kind=kind)
+    parsed, hits = search(db, q[:300], category=category, limit=min(limit, 100), kind=kind)
     items = {
         i.id: i
         for i in db.scalars(

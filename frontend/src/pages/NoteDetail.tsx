@@ -80,7 +80,7 @@ export default function NotePage() {
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_240px]">
         <article className="min-w-0">
           <Shared name={`note-${n.id}`}>
-            <h1 className="text-[2rem] leading-tight font-semibold sm:text-[2.4rem]">
+            <h1 className="text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">
               <label htmlFor="note-title" className="sr-only">
                 Título
               </label>

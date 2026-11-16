@@ -326,7 +326,7 @@ export default function CalendarPage() {
     <Page>
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1">
-          <h1 className="mr-2 text-[1.9rem] leading-tight font-semibold sm:text-[2.2rem]">{title}</h1>
+          <h1 className="mr-2 text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">{title}</h1>
           <IconButton label="Anterior" onClick={() => step(-1)}>
             <ChevronLeft size={20} />
           </IconButton>

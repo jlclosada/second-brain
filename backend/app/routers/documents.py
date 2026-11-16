@@ -83,7 +83,7 @@ def list_documents(
     items = db.scalars(
         query.options(selectinload(Item.document))
         .order_by(Item.doc_date.desc().nulls_last(), Item.created_at.desc())
-        .limit(min(limit, 200))
+        .limit(min(limit, 2000))
         .offset(offset)
     ).all()
     return ItemList(items=[ItemOut.model_validate(i) for i in items], total=total or 0)

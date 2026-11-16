@@ -48,7 +48,7 @@ export default function ProjectPage() {
           <span className="mt-2 h-10 w-1.5 shrink-0 rounded-full" style={{ background: colorVar(p.color) }} />
           <div>
             <Shared name={`project-${p.id}`}>
-              <h1 className="text-[2.2rem] leading-tight font-semibold">{p.name}</h1>
+              <h1 className="text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">{p.name}</h1>
             </Shared>
             <p className="text-muted">{p.description || (p.kind === "area" ? "Área" : "Proyecto")}</p>
           </div>

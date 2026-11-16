@@ -90,7 +90,7 @@ export default function DocumentPage() {
       </GoLink>
       <header className="mb-6">
         <Shared name={`doc-${d.id}`}>
-          <h1 className="text-[1.9rem] leading-tight font-semibold sm:text-[2.3rem]">{d.title}</h1>
+          <h1 className="text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">{d.title}</h1>
         </Shared>
         {d.document && (
           <p className="mt-1 text-sm text-muted">
