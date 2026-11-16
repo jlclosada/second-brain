@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.services import assistant, people
 from app.services.assistant import Toolbox
@@ -48,9 +49,11 @@ def test_people_show_up_before_meetings(client, brain_dirs):  # noqa: F811
         by_mail = people.for_event(db, "Seguimiento", None, None, {"attendees": [{"email": "laura@cliente.es", "name": ""}]})
         assert by_mail[0]["pendiente"] == ["Le debo la factura de septiembre"]
 
+    # «Hoy» es el día local (Europe/Madrid), no el de UTC: de noche, una hora más tarde ya es mañana allí.
+    tz = get_settings().tz
     start = (datetime.now(UTC) + timedelta(hours=1)).replace(microsecond=0)
-    if start.date() != datetime.now(UTC).date():
-        start = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=5)
+    if start.astimezone(tz).date() != datetime.now(tz).date():
+        start = datetime.now(UTC).replace(microsecond=0) + timedelta(minutes=1)
     ev = client.post("/api/events", json={"title": "Comida con Óscar", "starts_at": start.isoformat()}).json()
     today = client.get("/api/today").json()
     assert today["people"][ev["id"]][0]["nombre"] == "Óscar Martín"
