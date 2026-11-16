@@ -1,0 +1,10 @@
+[Unit]
+Description=Copia de seguridad de Jarvis (base de datos, archivos y vault)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/jarvis backup
+Nice=10
+IOSchedulingClass=idle

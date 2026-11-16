@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Comando para manejar Jarvis en el servidor. Se instala en /usr/local/bin/jarvis.
+#
+#   jarvis status            estado de los servicios y de la app
+#   jarvis logs [servicio]   registros en vivo (app, worker, db, syncthing)
+#   jarvis update [rama]     copia de seguridad, baja el código nuevo, reconstruye y arranca
+#   jarvis rollback          vuelve a la versión anterior a la última actualización
+#   jarvis backup            copia de seguridad ahora (también se hace cada noche)
+#   jarvis restore <carpeta> restaura una copia (base de datos + archivos)
+#   jarvis up | down | restart
+#   jarvis cli <args>        ejecuta app.cli (p. ej. jarvis cli reset-password)
+#   jarvis psql              consola de la base de datos
+set -euo pipefail
+
+JARVIS_HOME="${JARVIS_HOME:-/srv/jarvis}"
+APP="$JARVIS_HOME/app"
+CONF="$JARVIS_HOME/config"
+BACKUPS="$JARVIS_HOME/backups"
+KEEP_BACKUPS="${KEEP_BACKUPS:-14}"
+export JARVIS_HOME
+
+if [[ $EUID -ne 0 ]]; then exec sudo -E "$0" "$@"; fi
+[[ -f "$CONF/compose.env" ]] || { echo "Falta $CONF/compose.env: ejecuta antes deploy/setup-server.sh" >&2; exit 1; }
+# shellcheck disable=SC1091
+set -a; source "$CONF/compose.env"; set +a
+export JARVIS_VERSION="${JARVIS_VERSION:-$(git -C "$APP" rev-parse --short HEAD)}"
+
+dc() { docker compose -p jarvis -f "$APP/deploy/docker-compose.prod.yml" --env-file "$CONF/compose.env" "$@"; }
+say() { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
+
+wait_healthy() {
+  say "Esperando a que la app responda…"
+  for _ in $(seq 1 60); do
+    if curl -fsS -m 3 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then say "Jarvis está en marcha."; return 0; fi
+    sleep 3
+  done
+  echo "La app no responde tras 3 minutos. Mira: jarvis logs app" >&2; return 1
+}
+
+do_backup() {
+  local dest="$BACKUPS/$(date +%Y-%m-%d_%H%M)"
+  mkdir -p "$dest"
+  say "Copia de seguridad en $dest"
+  dc exec -T db pg_dump -U brain -Fc brain > "$dest/brain.dump"
+  # Datos de la app: documentos originales y la clave (.secret_key) que descifra los
+  # tokens guardados. Sin el modelo de embeddings, que se vuelve a descargar solo.
+  tar -C "$JARVIS_HOME/data" --exclude=./models -czf "$dest/data.tar.gz" .
+  tar -C "$JARVIS_HOME" -czf "$dest/vault.tar.gz" vault
+  git -C "$APP" rev-parse HEAD > "$dest/version.txt"
+  chown -R 1000:1000 "$dest"; chmod 700 "$dest"; chmod 600 "$dest"/*
+  # Rotación: se quedan las últimas $KEEP_BACKUPS
+  ls -1dt "$BACKUPS"/20* 2>/dev/null | tail -n +"$((KEEP_BACKUPS + 1))" | xargs -r rm -rf
+  du -sh "$dest" | awk '{print "  tamaño: "$1}'
+}
+
+do_restore() {
+  local src="${1:?Uso: jarvis restore <carpeta de la copia>}"
+  [[ -f "$src/brain.dump" ]] || { echo "No hay brain.dump en $src" >&2; exit 1; }
+  read -r -p "Esto sustituye la base de datos y los archivos actuales por los de $src. ¿Seguro? (escribe sí) " ok
+  [[ "$ok" == "sí" || "$ok" == "si" ]] || exit 1
+  dc stop app worker
+  dc up -d db
+  until dc exec -T db pg_isready -U brain >/dev/null 2>&1; do sleep 2; done
+  say "Restaurando base de datos"
+  dc exec -T db psql -U brain -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS brain WITH (FORCE);" -c "CREATE DATABASE brain OWNER brain;"
+  dc exec -T db pg_restore -U brain -d brain --no-owner --no-privileges < "$src/brain.dump"
+  if [[ -f "$src/data.tar.gz" ]]; then
+    say "Restaurando archivos"
+    find "$JARVIS_HOME/data" -mindepth 1 -maxdepth 1 ! -name models -exec rm -rf {} +
+    tar -C "$JARVIS_HOME/data" -xzf "$src/data.tar.gz"
+    chown -R 1000:1000 "$JARVIS_HOME/data"
+  fi
+  dc up -d
+  wait_healthy
+}
+
+do_update() {
+  local branch="${1:-$DEPLOY_BRANCH}"
+  local before; before="$(git -C "$APP" rev-parse HEAD)"
+  do_backup
+  say "Bajando la última versión de $branch"
+  sudo -u jarvis git -C "$APP" fetch --quiet origin "$branch"
+  sudo -u jarvis git -C "$APP" checkout --quiet -B "$branch" FETCH_HEAD
+  if [[ "$branch" != "$DEPLOY_BRANCH" ]]; then
+    sed -i "s|^DEPLOY_BRANCH=.*|DEPLOY_BRANCH=$branch|" "$CONF/compose.env"
+  fi
+  echo "$before" > "$CONF/previous-version"
+  JARVIS_VERSION="$(git -C "$APP" rev-parse --short HEAD)"; export JARVIS_VERSION
+  say "Construyendo la versión $JARVIS_VERSION"
+  dc build --pull migrate
+  dc up -d --remove-orphans
+  wait_healthy
+  docker image prune -f >/dev/null
+  git -C "$APP" log --oneline "$before..HEAD" | head -20
+}
+
+do_rollback() {
+  local prev; prev="$(cat "$CONF/previous-version" 2>/dev/null)" || { echo "No hay versión anterior guardada." >&2; exit 1; }
+  say "Volviendo a $prev (la base de datos no se toca; si hiciera falta: jarvis restore)"
+  sudo -u jarvis git -C "$APP" checkout --quiet "$prev"
+  JARVIS_VERSION="$(git -C "$APP" rev-parse --short HEAD)"; export JARVIS_VERSION
+  dc build migrate
+  dc up -d
+  wait_healthy
+}
+
+cmd="${1:-status}"; shift || true
+case "$cmd" in
+  up)       dc up -d --build; wait_healthy ;;
+  down)     dc down ;;
+  restart)  dc restart "$@" ;;
+  status)
+    dc ps
+    echo
+    curl -fsS -m 3 http://127.0.0.1:8000/api/health && echo || echo "La app no responde."
+    echo "Versión: $(git -C "$APP" log -1 --format='%h %s (%cr)') — rama $DEPLOY_BRANCH"
+    command -v tailscale >/dev/null && echo "Dirección: https://$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
+    echo "Última copia: $(ls -1t "$BACKUPS" 2>/dev/null | head -1)"
+    df -h "$JARVIS_HOME" | tail -1 | awk '{print "Disco: "$3" usados de "$2" ("$5")"}' ;;
+  logs)     dc logs -f --tail=200 "$@" ;;
+  update)   do_update "$@" ;;
+  rollback) do_rollback ;;
+  backup)   do_backup ;;
+  restore)  do_restore "$@" ;;
+  cli)      dc exec app python -m app.cli "$@" ;;
+  psql)     dc exec db psql -U brain brain ;;
+  compose)  dc "$@" ;;
+  *) sed -n '2,13p' "$0"; exit 1 ;;
+esac
