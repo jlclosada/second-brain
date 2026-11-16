@@ -445,7 +445,7 @@ export const api = {
   stats: () => request<Stats>("/api/stats"),
   archive: () => request<ArchiveCategory[]>("/api/archive"),
   categories: () => request<string[]>("/api/categories"),
-  documents: (params: { category?: string; year?: number; status?: string; project_id?: string; offset?: number }) =>
+  documents: (params: { category?: string; year?: number; status?: string; project_id?: string; offset?: number; limit?: number }) =>
     request<{ items: Item[]; total: number }>(`/api/documents${qs({ limit: 60, ...params })}`),
   document: (id: string) => request<ItemDetail>(`/api/documents/${id}`),
   updateDocument: (id: string, body: Partial<Item>) => request<Item>(`/api/documents/${id}`, send("PATCH", body)),
@@ -459,7 +459,7 @@ export const api = {
   },
 
   // Búsqueda
-  search: (q: string, params: { kind?: Kind; category?: string } = {}) => request<SearchResponse>(`/api/search${qs({ q, ...params })}`),
+  search: (q: string, params: { kind?: Kind; category?: string; limit?: number } = {}) => request<SearchResponse>(`/api/search${qs({ q, ...params })}`),
 
   // Avisos
   notifications: () => request<AppNotification[]>("/api/notifications"),

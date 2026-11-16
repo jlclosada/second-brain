@@ -25,7 +25,7 @@ export default function JournalPage() {
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-muted">Diario</p>
-          <h1 className="text-[2rem] leading-tight font-semibold sm:text-[2.4rem]">{capitalize(fmt(day, "EEEE d 'de' MMMM yyyy"))}</h1>
+          <h1 className="text-[1.6rem] leading-tight font-semibold sm:text-[1.85rem]">{capitalize(fmt(day, "EEEE d 'de' MMMM yyyy"))}</h1>
         </div>
         <div className="flex items-center gap-1">
           <IconButton label="Día anterior" onClick={() => go(`/diario/${isoDay(addDays(day, -1))}`, "nav-back")}>
