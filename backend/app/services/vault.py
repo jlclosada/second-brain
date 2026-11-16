@@ -31,6 +31,7 @@ DIARY = "05-Diario"
 ATTACHMENTS = "Adjuntos"
 DOCS_FOLDER = "03-Recursos/Documentos"
 DOCS_INDEX = "03-Recursos/Documentos.md"
+PEOPLE_FOLDER = "02-Areas/Personas"
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]")
 
@@ -122,6 +123,11 @@ def _upsert(db: Session, r: Path, path: Path, note: VaultNote | None, mtime: flo
     item.summary = excerpt(body)
     item.tags = _tags(fm)
     item.entities = {"estado": fm.get("estado")} if fm.get("estado") else {}
+    # Las fichas de Personas se reconocen en la búsqueda (y se abren en su sección, no en Obsidian).
+    if rel_path.startswith(f"{PEOPLE_FOLDER}/"):
+        item.category = "persona"
+    elif item.category == "persona":
+        item.category = None
     note.folder = path.parent.relative_to(r).as_posix() if path.parent != r else ""
     note.mtime = mtime
     note.frontmatter = fm

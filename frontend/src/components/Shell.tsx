@@ -13,6 +13,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  UsersRound,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -25,7 +26,7 @@ import { cx } from "./ui";
 
 // Navegación de la aplicación.
 //   General     lo del día a día: Jarvis, agenda, tareas, correo y documentos
-//   Biblioteca  lo que guardas: notas, diario y proyectos
+//   Biblioteca  lo que guardas: notas, diario, personas y proyectos
 // En el móvil, las cinco de General van en la barra de abajo.
 type NavItem = { to: string; label: string; icon: typeof Sparkles; end?: boolean; match?: string[] };
 
@@ -40,6 +41,7 @@ const GENERAL: NavItem[] = [
 const LIBRARY: NavItem[] = [
   { to: "/notas", label: "Notas", icon: NotebookPen },
   { to: "/diario", label: "Diario", icon: BookOpen },
+  { to: "/personas", label: "Personas", icon: UsersRound },
   { to: "/proyectos", label: "Proyectos", icon: FolderKanban },
 ];
 
@@ -54,10 +56,11 @@ const SECTION_LABEL: Record<string, string> = {
   notas: "Notas",
   diario: "Diario",
   proyectos: "Proyectos",
+  personas: "Personas",
   ajustes: "Ajustes",
 };
 
-const DETAIL_LABEL: Record<string, string> = { documentos: "Ficha", notas: "Nota", proyectos: "Proyecto", diario: "Entrada" };
+const DETAIL_LABEL: Record<string, string> = { documentos: "Ficha", notas: "Nota", proyectos: "Proyecto", diario: "Entrada", personas: "Ficha" };
 
 export function BrandMark({ size = 28 }: { size?: number }) {
   return (
