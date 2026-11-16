@@ -147,8 +147,9 @@ def test_snippet_escapes_document_html(client, upload, process_all):
     upload("pagina.html", "<img src=x onerror=alert(1)> Recibo del gimnasio", "text/html")
     process_all()
     snippet = client.get("/api/search", params={"q": "gimnasio"}).json()["hits"][0]["snippet"]
-    assert "<img" not in snippet
-    assert "&lt;img" in snippet
+    # El fragmento puede empezar a mitad de la etiqueta; lo que importa es que llega escapada.
+    assert "<img" not in snippet and "&gt;" in snippet
+    assert "<" not in snippet.replace("<mark>", "").replace("</mark>", "")
     assert "<mark>gimnasio</mark>" in snippet
     item_id = client.get("/api/documents").json()["items"][0]["id"]
     r = client.get(f"/api/documents/{item_id}/file")

@@ -16,6 +16,8 @@ const InboxPage = lazy(() => import("./pages/Inbox"));
 const JournalPage = lazy(() => import("./pages/Journal"));
 const NotePage = lazy(() => import("./pages/NoteDetail"));
 const NotesPage = lazy(() => import("./pages/Notes"));
+const PeoplePage = lazy(() => import("./pages/People"));
+const PersonPage = lazy(() => import("./pages/PersonDetail"));
 const ProjectPage = lazy(() => import("./pages/ProjectDetail"));
 const ProjectsPage = lazy(() => import("./pages/Projects"));
 const SearchPage = lazy(() => import("./pages/Search"));
@@ -55,6 +57,8 @@ export default function App() {
           <Route path="/diario/:day?" element={<JournalPage />} />
           <Route path="/documentos" element={<DocumentsPage />} />
           <Route path="/documentos/:id" element={<DocumentPage />} />
+          <Route path="/personas" element={<PeoplePage />} />
+          <Route path="/personas/:id" element={<PersonPage />} />
           <Route path="/proyectos" element={<ProjectsPage />} />
           <Route path="/proyectos/:id" element={<ProjectPage />} />
           <Route path="/buscar" element={<SearchPage />} />

@@ -19,6 +19,8 @@ const PAGES = [
   { to: "/calendario", label: "Agenda" },
   { to: "/tareas", label: "Tareas" },
   { to: "/documentos", label: "Documentos" },
+  { to: "/personas", label: "Personas" },
+  { to: "/personas?nueva=1", label: "Nueva persona" },
   { to: "/documentos?subir=1", label: "Subir documentos" },
   { to: "/ajustes?seccion=conexiones", label: "Conectar Google o GitHub" },
   { to: "/ajustes", label: "Ajustes" },
@@ -104,7 +106,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                     <Command.Item
                       key={h.item.id}
                       value={h.item.id}
-                      onSelect={() => open_(itemPath(h.item.kind, h.item.id, h.item.title))}
+                      onSelect={() => open_(itemPath(h.item.kind, h.item.id, h.item.title, h.item.category))}
                       className="palette-item"
                     >
                       <Icon size={18} className="shrink-0 text-muted" />

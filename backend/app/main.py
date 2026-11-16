@@ -20,6 +20,7 @@ from app.routers import (
     memory,
     notes,
     notifications,
+    people,
     projects,
     search,
     tasks,
@@ -98,7 +99,8 @@ async def security(request: Request, call_next):
     return response
 
 
-for module in (auth, documents, search, notes, tasks, calendar, projects, today, notifications, assistant, integrations, memory):
+for module in (auth, documents, search, notes, tasks, calendar, projects, today, notifications, assistant, integrations, memory,
+               people):
     app.include_router(module.router)
 app.include_router(calendar.feed_router)
 

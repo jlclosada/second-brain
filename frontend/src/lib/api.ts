@@ -261,9 +261,55 @@ export type JarvisEvent =
   | { type: "done"; conversation_id: string; reply: ChatMessage }
   | { type: "error"; message: string };
 
+// --- Personas ------------------------------------------------------------------------------
+
+export type PersonSection = "Historial" | "Quién es" | "Cómo tratarle" | "Pendiente";
+export type PersonEntry = { id: string; section: string; date: string | null; text: string; attachments: string[] };
+
+export type PersonSummary = {
+  id: string;
+  name: string;
+  path: string;
+  company: string | null;
+  role: string | null;
+  relation: string | null;
+  email: string | null;
+  entries: number;
+  pending: number;
+  last_entry: PersonEntry | null;
+  updated_at: string | null;
+};
+
+export type Person = PersonSummary & {
+  phone: string | null;
+  birthday: string | null;
+  aliases: string[];
+  obsidian_url: string;
+  history: PersonEntry[];
+  about: PersonEntry[];
+  how_to: PersonEntry[];
+  todo: PersonEntry[];
+  other_sections: Record<string, PersonEntry[]>;
+  upcoming: CalEvent[];
+  past_meetings: CalEvent[];
+  mentions: { id: string; title: string; path: string; snippet: string; obsidian_url: string }[];
+  emails: { id: string; subject: string; snippet: string; received_at: string }[];
+};
+
+export type PersonFields = {
+  company?: string | null;
+  role?: string | null;
+  relation?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  birthday?: string | null;
+  aliases?: string[];
+};
+
 /** Habla con Jarvis en directo: cada evento llega en cuanto ocurre. */
 export type ChatFile = { id: string; name: string; mime: string; size: number };
 export type PersonCard = {
+  id: string;
   nombre: string;
   ruta: string;
   obsidian_url: string;
@@ -311,6 +357,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public detail?: unknown,
   ) {
     super(message);
   }
@@ -328,14 +375,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     let message = res.statusText;
+    let detail: unknown;
     try {
       const body = await res.json();
+      detail = body.detail;
       if (typeof body.detail === "string") message = body.detail;
+      else if (body.detail && typeof body.detail.message === "string") message = body.detail.message;
       else if (Array.isArray(body.detail) && body.detail[0]?.msg) message = String(body.detail[0].msg).replace(/^Value error, /, "");
     } catch {
       /* respuesta sin JSON */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, detail);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
@@ -379,6 +429,19 @@ export const api = {
   githubConnect: (token: string) => request<Integration>("/api/integrations/github", send("PUT", { token })),
   githubDisconnect: () => request<void>("/api/integrations/github", send("DELETE")),
   syncIntegration: (provider: "google" | "github" | "icloud") => request<void>(`/api/integrations/${provider}/sync`, send("POST")),
+
+  // Personas
+  people: () => request<{ vault: boolean; people: PersonSummary[] }>("/api/people"),
+  person: (id: string) => request<Person>(`/api/people/${id}`),
+  createPerson: (body: PersonFields & { name: string; about?: string }) => request<Person>("/api/people", send("POST", body)),
+  updatePerson: (id: string, body: PersonFields) => request<Person>(`/api/people/${id}`, send("PATCH", body)),
+  addPersonEntry: (id: string, body: { text: string; date?: string; section?: PersonSection }) =>
+    request<Person>(`/api/people/${id}/entries`, send("POST", body)),
+  editPersonEntry: (id: string, entry: string, body: { text: string; date?: string }) =>
+    request<Person>(`/api/people/${id}/entries/${encodeURIComponent(entry)}`, send("PATCH", body)),
+  deletePersonEntry: (id: string, entry: string) => request<Person>(`/api/people/${id}/entries/${encodeURIComponent(entry)}`, send("DELETE")),
+  completePersonEntry: (id: string, entry: string) => request<Person>(`/api/people/${id}/entries/${encodeURIComponent(entry)}/done`, send("POST")),
+  personBrief: (id: string) => request<{ ai: boolean; markdown: string | null }>(`/api/people/${id}/brief`, send("POST")),
 
   // Memoria (vault de Obsidian) y actividad de Jarvis
   memoryStatus: () => request<MemoryStatus>("/api/memory/status"),
@@ -483,7 +546,8 @@ export const api = {
   deleteConversation: (id: string) => request<void>(`/api/assistant/conversations/${id}`, send("DELETE")),
 };
 
-export function itemPath(kind: Kind, id: string, title?: string) {
+export function itemPath(kind: Kind, id: string, title?: string, category?: string | null) {
+  if (kind === "vault" && category === "persona") return `/personas/${id}`;
   switch (kind) {
     case "document":
       return `/documentos/${id}`;

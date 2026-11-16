@@ -72,6 +72,9 @@ const TOOL_LABEL: Record<string, string> = {
   borrar_tarea: "Borrando la tarea",
   redactar_respuesta: "Redactando la respuesta",
   escribir_en_diario: "Escribiendo en tu diario",
+  ficha_persona: "Repasando su ficha",
+  listar_personas: "Repasando tus personas",
+  apuntar_sobre_persona: "Apuntándolo en su ficha",
 };
 
 const SUGGESTIONS = ["¿Qué tengo hoy?", "Resume los correos que debo contestar", "Ponme el dentista el jueves a las 10", "¿Qué tengo pendiente en Verifactu?"];
@@ -278,7 +281,7 @@ function PeopleHint({ cards }: { cards: PersonCard[] }) {
   return (
     <div className="flex flex-col gap-2">
       {cards.slice(0, 2).map((p) => (
-        <a key={p.ruta} href={p.obsidian_url} className="block rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm transition-colors hover:bg-white/[0.07]">
+        <GoLink key={p.ruta} to={`/personas/${p.id}`} className="block rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm transition-colors hover:bg-white/[0.07]">
           <p className="flex items-center gap-1.5 font-medium">
             <UserRound size={14} className="text-cobalt" /> {p.nombre}
             {(p.empresa || p.relacion) && <span className="font-normal text-faint">· {[p.relacion, p.empresa].filter(Boolean).join(", ")}</span>}
@@ -286,7 +289,7 @@ function PeopleHint({ cards }: { cards: PersonCard[] }) {
           {p.ultimo[0] && <p className="mt-0.5 line-clamp-2 text-muted">Último: {p.ultimo[0]}</p>}
           {p.como_tratarle[0] && <p className="line-clamp-1 text-muted">Ten en cuenta: {p.como_tratarle[0]}</p>}
           {p.pendiente[0] && <p className="line-clamp-1 text-ochre">Pendiente: {p.pendiente[0]}</p>}
-        </a>
+        </GoLink>
       ))}
     </div>
   );
