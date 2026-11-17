@@ -37,6 +37,18 @@ DOCUMENT_TYPES = {
 }
 PARTIAL = (".crdownload", ".part", ".download", ".tmp", ".partial")
 MAX_MB = 100
+# Claves privadas y certificados: nunca se leen, se clasifican ni se mueven.
+SECRET_MARKERS = (b"PRIVATE KEY-----", b"PuTTY-User-Key-File", b"BEGIN PGP PRIVATE KEY")
+
+
+def looks_secret(path: Path) -> bool:
+    """True si el archivo parece una clave privada (p. ej. la .key que da Oracle o AWS)."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return True
+    return any(marker in head for marker in SECRET_MARKERS)
 
 
 def candidates(folder: Path, settle_seconds: int) -> list[Path]:
@@ -50,6 +62,8 @@ def candidates(folder: Path, settle_seconds: int) -> list[Path]:
             continue
         stat = path.stat()
         if now - stat.st_mtime < settle_seconds or stat.st_size == 0 or stat.st_size > MAX_MB * 1024 * 1024:
+            continue
+        if looks_secret(path):
             continue
         out.append(path)
     return out
