@@ -8,6 +8,7 @@ import {
   FileText,
   FolderKanban,
   Inbox,
+  LayoutGrid,
   NotebookPen,
   Plus,
   Search,
@@ -22,12 +23,12 @@ import { api } from "../lib/api";
 import { CaptureDialog } from "./Capture";
 import CommandPalette from "./CommandPalette";
 import Notifications from "./Notifications";
-import { cx } from "./ui";
+import { cx, Sheet } from "./ui";
 
 // Navegación de la aplicación.
 //   General     lo del día a día: Jarvis, agenda, tareas, correo y documentos
 //   Biblioteca  lo que guardas: notas, diario, personas y proyectos
-// En el móvil, las cinco de General van en la barra de abajo.
+// En el móvil, las cinco de General van en la barra de abajo y la Biblioteca detrás de «Más».
 type NavItem = { to: string; label: string; icon: typeof Sparkles; end?: boolean; match?: string[] };
 
 const GENERAL: NavItem[] = [
@@ -130,6 +131,51 @@ function DockLink({ item, badge }: { item: NavItem; badge?: number }) {
         </span>
       )}
     </NavLink>
+  );
+}
+
+// Móvil: la Biblioteca (notas, diario, personas, proyectos) no cabe en la barra de abajo,
+// así que va detrás de «Más», que se marca activo cuando estás en una de esas secciones.
+function DockMore() {
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const active = LIBRARY.some((n) => pathname === n.to || pathname.startsWith(`${n.to}/`));
+  useEffect(() => setOpen(false), [pathname]);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-current={active ? "page" : undefined}
+        className={cx("relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[0.65rem]", active ? "text-ink" : "text-faint")}
+      >
+        {active && <span aria-hidden className="absolute inset-x-2 inset-y-1 rounded-xl bg-white/[0.07]" />}
+        <LayoutGrid size={20} strokeWidth={active ? 2.2 : 1.7} className={cx("relative", active && "text-cobalt")} />
+        <span className="relative">Más</span>
+      </button>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Biblioteca">
+        <nav aria-label="Biblioteca" className="grid grid-cols-2 gap-2">
+          {[...LIBRARY, { to: "/ajustes", label: "Ajustes", icon: Settings }].map((n) => {
+            const Icon = n.icon;
+            const here = pathname === n.to || pathname.startsWith(`${n.to}/`);
+            return (
+              <NavLink
+                key={n.to}
+                to={n.to}
+                className={cx(
+                  "flex items-center gap-3 rounded-xl border border-line px-4 py-3.5 text-sm font-medium",
+                  here ? "bg-white/[0.07] text-ink" : "text-muted hover:text-ink",
+                )}
+              >
+                <Icon size={19} className={here ? "text-cobalt" : undefined} />
+                {n.label}
+              </NavLink>
+            );
+          })}
+        </nav>
+      </Sheet>
+    </>
   );
 }
 
@@ -310,6 +356,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           {GENERAL.map((n) => (
             <DockLink key={n.to} item={n} badge={n.to === "/bandeja" ? attention : undefined} />
           ))}
+          <DockMore />
         </nav>
       </div>
 
