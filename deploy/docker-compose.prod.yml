@@ -1,0 +1,110 @@
+# Jarvis en el servidor (Oracle Cloud). No se usa a mano: lo lanza el comando `jarvis`
+# (deploy/jarvis), que pasa --env-file /srv/jarvis/config/compose.env y -p jarvis.
+#
+# Seguridad:
+#  - Nada se publica en la IP pública. La app solo escucha en 127.0.0.1:8000 y
+#    Tailscale la sirve con HTTPS dentro de tu red privada (tailscale serve).
+#  - La base de datos no tiene puertos y su contraseña es aleatoria (compose.env).
+#  - Los secretos viven en /srv/jarvis/config (chmod 600), nunca en el repo.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg://brain:${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}@db:5432/brain
+  VAULT_DIR: /vault
+  COOKIE_SECURE: "true"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD}
+      POSTGRES_DB: brain
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain"]
+      interval: 5s
+      retries: 20
+    shm_size: 256mb
+    logging: *logging
+
+  migrate:
+    build:
+      context: ..
+    image: jarvis:${JARVIS_VERSION:-latest}
+    pull_policy: build
+    user: "0"
+    command: ["sh", "-c", "chown -R brain:brain /data && python -m app.cli migrate"]
+    env_file: ${JARVIS_HOME:-/srv/jarvis}/config/jarvis.env
+    environment: *app-env
+    volumes:
+      - ${JARVIS_HOME:-/srv/jarvis}/data:/data
+    depends_on:
+      db: { condition: service_healthy }
+    logging: *logging
+
+  app:
+    image: jarvis:${JARVIS_VERSION:-latest}
+    pull_policy: never
+    restart: unless-stopped
+    env_file: ${JARVIS_HOME:-/srv/jarvis}/config/jarvis.env
+    environment: *app-env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ${JARVIS_HOME:-/srv/jarvis}/data:/data
+      - ${JARVIS_HOME:-/srv/jarvis}/vault:/vault
+      - ${JARVIS_HOME:-/srv/jarvis}/downloads:/downloads
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  worker:
+    image: jarvis:${JARVIS_VERSION:-latest}
+    pull_policy: never
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: ${JARVIS_HOME:-/srv/jarvis}/config/jarvis.env
+    environment: *app-env
+    volumes:
+      - ${JARVIS_HOME:-/srv/jarvis}/data:/data
+      - ${JARVIS_HOME:-/srv/jarvis}/vault:/vault
+      - ${JARVIS_HOME:-/srv/jarvis}/downloads:/downloads
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # Sincroniza el vault de Obsidian con tu Mac (y le manda las copias de seguridad).
+  # Usa la red del host para que el cortafuegos decida: solo se llega por Tailscale.
+  # Sin servidores de relay ni descubrimiento global (lo configura deploy/syncthing-setup.sh).
+  syncthing:
+    image: syncthing/syncthing:1.29
+    restart: unless-stopped
+    network_mode: host
+    hostname: jarvis
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      STGUIADDRESS: 127.0.0.1:8384
+    volumes:
+      - ${JARVIS_HOME:-/srv/jarvis}/syncthing:/var/syncthing
+      - ${JARVIS_HOME:-/srv/jarvis}/vault:/sync/vault
+      - ${JARVIS_HOME:-/srv/jarvis}/backups:/sync/backups
+      - ${JARVIS_HOME:-/srv/jarvis}/downloads:/sync/downloads
+    logging: *logging
+
+volumes:
+  db-data:

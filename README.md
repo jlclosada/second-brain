@@ -150,8 +150,8 @@ Haiku por defecto (`CHAT_MODEL`); puedes cambiarlo por un modelo más potente si
 - Más workers: `docker compose up -d --scale worker=3`. La cola reparte el trabajo con
   `SKIP LOCKED` y solo uno ejecuta el planificador (advisory lock de Postgres).
 - Más procesos de API: `WEB_CONCURRENCY=2` en `.env`.
-- La misma configuración funciona en un servidor (por ejemplo una máquina ARM de Oracle Cloud
-  Always Free con Docker y Tailscale): copia `.env` y restaura una copia de seguridad.
+- Para tenerlo encendido siempre, en un servidor gratuito de Oracle Cloud y accesible solo por
+  Tailscale, sigue [deploy/README.md](deploy/README.md).
 
 ## Desarrollo
 

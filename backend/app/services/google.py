@@ -16,7 +16,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from email.message import EmailMessage
 from email.utils import parseaddr
 from html import unescape
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 import jwt
@@ -103,7 +103,9 @@ def is_connected(db: Session) -> bool:
 
 
 def redirect_uri(base_url: str) -> str:
-    base = (get_settings().public_url or base_url).rstrip("/")
+    # Desde localhost se vuelve a localhost; desde fuera, a PUBLIC_URL si está puesta.
+    is_local = (urlsplit(base_url).hostname or "") in {"localhost", "127.0.0.1", "::1"}
+    base = (base_url if is_local else (get_settings().public_url or base_url)).rstrip("/")
     return base + CALLBACK_PATH
 
 
