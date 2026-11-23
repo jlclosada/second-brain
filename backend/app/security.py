@@ -154,7 +154,20 @@ def create_session(db: Session, request: Request, settings: Settings) -> str:
     return jwt.encode(payload, settings.signing_key(), algorithm="HS256")
 
 
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def is_local_request(request: Request) -> bool:
+    """Abierta desde el propio Mac (http://localhost:8000), sin pasar por Tailscale."""
+    if request.headers.get("x-forwarded-host"):
+        return False
+    return (request.url.hostname or "") in LOCAL_HOSTS
+
+
 def cookie_secure(request: Request, settings: Settings) -> bool:
+    # En localhost no hay HTTPS: una cookie Secure no se guardaría y no podrías entrar.
+    if is_local_request(request) and request.url.scheme == "http":
+        return False
     if settings.cookie_secure is not None:
         return settings.cookie_secure
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"

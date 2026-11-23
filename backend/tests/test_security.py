@@ -82,3 +82,23 @@ def test_totp_two_factor(client):
         ok = c.post("/api/auth/login", json={"password": "secreto", "totp": pyotp.TOTP(setup["secret"]).now()})
         assert ok.status_code == 200
     assert client.get("/api/auth/me").json()["totp_enabled"] is True
+
+
+def test_localhost_login_and_google_redirect(monkeypatch):
+    from starlette.requests import Request
+
+    from app.config import Settings
+    from app.security import cookie_secure
+    from app.services import google
+
+    def req(host, headers=()):
+        return Request({"type": "http", "scheme": "http", "server": (host, 8000), "path": "/",
+                        "headers": [(b"host", f"{host}:8000".encode()), *headers]})
+
+    settings = Settings(cookie_secure=True)
+    assert cookie_secure(req("localhost"), settings) is False
+    assert cookie_secure(req("jarvis", [(b"x-forwarded-host", b"x.ts.net")]), settings) is True
+
+    monkeypatch.setattr(google, "get_settings", lambda: Settings(public_url="https://x.ts.net"))
+    assert google.redirect_uri("http://localhost:8000") == "http://localhost:8000" + google.CALLBACK_PATH
+    assert google.redirect_uri("http://jarvis:8000") == "https://x.ts.net" + google.CALLBACK_PATH
